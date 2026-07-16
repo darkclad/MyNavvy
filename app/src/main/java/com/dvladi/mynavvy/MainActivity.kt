@@ -543,12 +543,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     /** Position a scale bar at the bottom-left of a pane [region]; a nav pane lifts it above the SOG
      *  box. Showing (and auto-hiding) goes through the common flashChrome() policy. */
     private fun placeScaleBar(bar: View, region: IntArray, navPane: Boolean) {
-        val d = resources.displayMetrics.density
         val regionBottom = region[1] + region[3]
         bar.updateLayoutParams<FrameLayout.LayoutParams> {
-            marginStart = region[0] + (8 * d).toInt()
+            marginStart = region[0] + dp(8)
             bottomMargin = (binding.contentArea.height - regionBottom) +
-                ((if (navPane) NAV_SCALE_BOTTOM_DP else 10) * d).toInt()
+                dp(if (navPane) NAV_SCALE_BOTTOM_DP else 10)
         }
         flashChrome()
     }
@@ -562,14 +561,13 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  the panel ends after the tide tile, same as the full-screen chart — but capped so the
      *  zoom/center buttons always fit BELOW it inside the pane (a clipped sidebar scrolls). */
     private fun fitSidebarToPane(region: IntArray) {
-        val d = resources.displayMetrics.density
         val contentH = binding.hudScroll.getChildAt(0)?.let {
             it.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
             it.measuredHeight + binding.hudScroll.paddingTop + binding.hudScroll.paddingBottom
         } ?: region[3]
         // Room the buttons need under the sidebar: their stack + the 8dp gap + 10dp pane inset.
-        val buttonsH = binding.zoomControls.height.takeIf { it > 0 } ?: ((52 * 3 + 6 * 2) * d).toInt()
-        val reserved = buttonsH + ((8 + 10) * d).toInt()
+        val buttonsH = binding.zoomControls.height.takeIf { it > 0 } ?: dp(52 * 3 + 6 * 2)
+        val reserved = buttonsH + dp(8 + 10)
         binding.hudScroll.updateLayoutParams<FrameLayout.LayoutParams> {
             height = minOf(contentH, region[3] - reserved)
             topMargin = region[1]
@@ -620,9 +618,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     }
 
     private fun resetScaleBar(bar: View) {
-        val d = resources.displayMetrics.density
         bar.updateLayoutParams<FrameLayout.LayoutParams> {
-            marginStart = (8 * d).toInt(); bottomMargin = (10 * d).toInt()
+            marginStart = dp(8); bottomMargin = dp(10)
         }
     }
 
@@ -1034,7 +1031,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             }
             binding.infoCard.setOnClickListener { binding.infoCard.visibility = View.GONE }
             if (!stateRestored) { stateRestored = true; restoreState() }
-            refreshInfo()
             chartReady = true // style is up — release the splash
             applyPendingShare() // a location shared in before the chart was ready
         }
@@ -1284,8 +1280,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     // --- Phase 2 controls ---------------------------------------------------
 
     private fun wireControls() {
-        binding.btnUndo.setOnClickListener { routeManager?.undoWaypoint(); refreshInfo(); flashChrome() }
-        binding.btnClear.setOnClickListener { routeManager?.clearRoute(); refreshInfo(); flashChrome() }
+        binding.btnUndo.setOnClickListener { routeManager?.undoWaypoint(); flashChrome() }
+        binding.btnClear.setOnClickListener { routeManager?.clearRoute(); flashChrome() }
 
         binding.btnWx.setOnClickListener {
             flashChrome()
@@ -1379,7 +1375,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             .setTitle("Location")
             .setItems(arrayOf("Add waypoint", "Add mark", "Share location")) { _, which ->
                 when (which) {
-                    0 -> { routeManager?.addWaypoint(ll); refreshInfo(); flashChrome() }
+                    0 -> { routeManager?.addWaypoint(ll); flashChrome() }
                     1 -> {
                         val t = System.currentTimeMillis()               // the new mark's id == this ts
                         val name = markStore?.add(ll.latitude, ll.longitude, t) ?: return@setItems
@@ -1404,7 +1400,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                             FeatureKind.MARK -> { markStore?.remove(f.id); saveMarks() }
                             FeatureKind.WAYPOINT -> routeManager?.removeWaypoint(f.id)
                         }
-                        refreshInfo()
                     }
                     1 -> renameFeatureDialog(f)
                     2 -> shareLocation(f.ll.latitude, f.ll.longitude)
@@ -1415,11 +1410,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     }
 
     private fun renameFeatureDialog(f: TappedFeature) {
-        val d = resources.displayMetrics.density
         val input = EditText(this).apply { setText(f.name); setSelection(text.length); setSingleLine() }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding((20 * d).toInt(), (8 * d).toInt(), (20 * d).toInt(), 0)
+            setPadding(dp(20), dp(8), dp(20), 0)
             addView(input)
         }
         androidx.appcompat.app.AlertDialog.Builder(this)
@@ -1506,8 +1500,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     /** ⚓ dialog: set the radius and lower the anchor; or, if already down, change radius / raise it. */
     private fun showAnchorDialog() {
         val set = anchorWatch?.isSet() == true
-        val d = resources.displayMetrics.density
-        fun dp(v: Int) = (v * d).toInt()
         val radiusVal = TextView(this).apply {
             textSize = 20f; setTextColor(Color.parseColor("#111111")); gravity = Gravity.CENTER
             typeface = android.graphics.Typeface.MONOSPACE; minWidth = dp(110)
@@ -2373,8 +2365,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     }
 
     private fun applyOrientationChrome(landscape: Boolean) {
-        val d = resources.displayMetrics.density
-        fun dp(v: Int) = (v * d).toInt()
         // HUD sidebar: content-sized in BOTH orientations (the panel ends after the tide tile, same
         // as portrait) so the zoom buttons can sit beneath it at the right edge. A ScrollView caps
         // at the screen height and scrolls internally if a short screen clips the stacked tiles.
@@ -2397,8 +2387,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  - map + gauge split      → bottom-right of pane A (the gauge pane is opaque and would
      *                             cover them at the screen edge) */
     private fun updateZoomControlsMargins() {
-        val d = resources.displayMetrics.density
-        fun dp(v: Int) = (v * d).toInt()
         val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val base = if (landscape) dp(96) else dp(120)
         val w = binding.contentArea.width; val h = binding.contentArea.height
@@ -2442,8 +2430,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  never behind it or over it. Panel heights are dynamic, so measure once laid out; when neither
      *  is open they drop back to their resting positions. */
     private fun repositionBottomOverlays() {
-        val d = resources.displayMetrics.density
-        fun dp(v: Int) = (v * d).toInt()
         val landscape = resources.configuration.orientation ==
             android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val zoomRest = if (landscape) dp(96) else dp(120)
@@ -2677,16 +2663,13 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
     }
 
-    // Route stats live on the Passage & Route screen now; the chart no longer has a status line.
-    private fun refreshInfo() { /* no-op: the bottom route-info line was removed in the toolbar redesign */ }
-
     // --- Screen data bridge -------------------------------------------------
     // The overlaid planning screens (Route / Weather) are fragments in screenHost; they read the
     // live route/weather state through these accessors rather than owning their own copies.
 
     fun uiRouteWaypoints(): List<LatLng> = routeManager?.waypoints() ?: emptyList()
     fun uiCruiseKn(): Double = cruisingSpeedKn
-    fun uiClearRoute() { routeManager?.clearRoute(); refreshInfo() }
+    fun uiClearRoute() { routeManager?.clearRoute() }
     fun uiExportGpx() { saveGpx() }
     fun uiWeather(): WeatherRepository.Weather? = weather
     fun uiTide(): WeatherRepository.Tide? = tide

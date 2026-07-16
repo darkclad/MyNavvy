@@ -12,54 +12,41 @@ import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
-import java.text.SimpleDateFormat
 import java.util.Locale
-import java.util.TimeZone
 
 /**
- * Owns the on-map route (tap-added waypoints) and the recorded GPS track, plus the
+ * Owns the on-map route (tap-added waypoints), the session breadcrumb trail, and the
  * MapLibre GeoJSON sources/layers that draw them. Also computes leg/route stats and
- * exports GPX. Created once, after the style has loaded.
+ * exports GPX. Created once, after the style has loaded. (The persistent recorded track
+ * lives in TrackStore / TrackHistory — not here.)
  */
 class RouteManager(style: org.maplibre.android.maps.Style) {
-
-    data class TrackPoint(val lat: Double, val lon: Double, val timeMs: Long)
 
     /** A route waypoint: a stable id (for hit-test / remove / rename) + position + optional name. */
     data class Waypoint(val id: Long, val ll: LatLng, var name: String?)
 
     private val waypoints = ArrayList<Waypoint>()
     private var wpSeq = 0L
-    private val track = ArrayList<TrackPoint>()
     private val trail = ArrayList<LatLng>()
 
     private val routeSource = GeoJsonSource(SRC_ROUTE)
     private val wpSource = GeoJsonSource(SRC_WP)
-    private val trackSource = GeoJsonSource(SRC_TRACK)
     private val trailSource = GeoJsonSource(SRC_TRAIL)
     private val calcSource = GeoJsonSource(SRC_CALC)
 
     init {
         style.addSource(trailSource)
-        style.addSource(trackSource)
         style.addSource(calcSource)
         style.addSource(routeSource)
         style.addSource(wpSource)
 
-        // Always-on breadcrumb trail — drawn first so it sits beneath the recorded track/route.
+        // Always-on breadcrumb trail — drawn first so it sits beneath the route layers.
         style.addLayer(
             LineLayer(LYR_TRAIL, SRC_TRAIL).withProperties(
                 PropertyFactory.lineColor("#4FC3E8"),
                 PropertyFactory.lineWidth(2f),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
                 PropertyFactory.lineOpacity(0.6f)
-            )
-        )
-        style.addLayer(
-            LineLayer(LYR_TRACK, SRC_TRACK).withProperties(
-                PropertyFactory.lineColor("#7b1fa2"),
-                PropertyFactory.lineWidth(2.5f),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
             )
         )
         style.addLayer(
@@ -164,45 +151,6 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
         }
     }
 
-    // --- Track (recording) --------------------------------------------------
-
-    fun startTrack() { track.clear(); redrawTrack() }
-    fun clearTrack() { track.clear(); redrawTrack() }
-    fun trackSize() = track.size
-    fun trackStartMs() = if (track.isEmpty()) 0L else track.first().timeMs
-    fun trackElapsedMs() = if (track.size < 1) 0L else track.last().timeMs - track.first().timeMs
-
-    fun addTrackPoint(lat: Double, lon: Double, timeMs: Long) {
-        // Drop near-duplicates: multiple location providers report the same fix.
-        track.lastOrNull()?.let { last ->
-            val movedM = GeoUtils.distanceNm(LatLng(last.lat, last.lon), LatLng(lat, lon)) * 1852.0
-            if (movedM < 2.0 && timeMs - last.timeMs < 3000) return
-        }
-        track.add(TrackPoint(lat, lon, timeMs))
-        redrawTrack()
-    }
-
-    fun trackDistanceNm(): Double {
-        var d = 0.0
-        for (i in 1 until track.size) {
-            d += GeoUtils.distanceNm(
-                LatLng(track[i - 1].lat, track[i - 1].lon),
-                LatLng(track[i].lat, track[i].lon)
-            )
-        }
-        return d
-    }
-
-    private fun redrawTrack() {
-        if (track.size >= 2) {
-            trackSource.setGeoJson(LineString.fromLngLats(
-                track.map { Point.fromLngLat(it.lon, it.lat) }
-            ))
-        } else {
-            trackSource.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-        }
-    }
-
     // --- Trail (always-on breadcrumb) ---------------------------------------
     // A rolling line of where the boat has been, kept regardless of GPX recording. Fed
     // every fix; capped so a long passage stays bounded. Cleared on a position discontinuity.
@@ -230,11 +178,9 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
 
     // --- Export -------------------------------------------------------------
 
-    fun hasExportable(): Boolean = waypoints.size >= 1 || track.size >= 1
+    fun hasExportable(): Boolean = waypoints.size >= 1
 
     fun buildGpx(): String {
-        val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-            .apply { timeZone = TimeZone.getTimeZone("UTC") }
         val sb = StringBuilder()
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"MyNavvy\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
@@ -246,15 +192,6 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
             }
             sb.append("  </rte>\n")
         }
-        if (track.size >= 1) {
-            sb.append("  <trk><name>MyNavvy track</name><trkseg>\n")
-            track.forEach {
-                sb.append(String.format(Locale.US,
-                    "    <trkpt lat=\"%.6f\" lon=\"%.6f\"><time>%s</time></trkpt>\n",
-                    it.lat, it.lon, iso.format(it.timeMs)))
-            }
-            sb.append("  </trkseg></trk>\n")
-        }
         sb.append("</gpx>\n")
         return sb.toString()
     }
@@ -262,7 +199,6 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
     companion object {
         private const val SRC_ROUTE = "route-src"
         private const val SRC_WP = "wp-src"
-        private const val SRC_TRACK = "track-src"
         private const val SRC_TRAIL = "trail-src"
         private const val SRC_CALC = "calc-src"
         private const val LYR_ROUTE = "route-line"
@@ -272,7 +208,6 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
         const val PROP_WID = "wid"
         private const val PROP_WNAME = "wname"
         private const val LYR_WP_LABEL = "wp-labels"
-        private const val LYR_TRACK = "track-line"
         private const val LYR_TRAIL = "trail-line"
         private const val LYR_CALC = "calc-line"
 
