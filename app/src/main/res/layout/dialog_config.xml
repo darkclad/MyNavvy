@@ -90,6 +90,36 @@
             android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
     </LinearLayout>
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:text="History tracks"
+        android:textColor="#9fb3c0"
+        android:textSize="12sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Recorded day-tracks drawn on the chart (dashed lines)"
+        android:textColor="#6b7d89"
+        android:textSize="10sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <Button android:id="@+id/btnHistDown" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="–" />
+        <TextView android:id="@+id/tvHistValue" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1.6" android:gravity="center" android:textColor="#FFFFFF"
+            android:textSize="16sp" android:fontFamily="monospace" android:text="5" />
+        <Button android:id="@+id/btnHistUp" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
+    </LinearLayout>
+
     <View android:layout_width="match_parent" android:layout_height="1dp"
         android:layout_marginVertical="14dp" android:background="#33ffffff" />
 

@@ -122,7 +122,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
 
     private var routeManager: RouteManager? = null
     private var cruisingSpeedKn = 6.0
-    private var recording = false
+    // Recorded-track history overlay (thin dashed day-tracks). Recording itself is always on in
+    // WatchService — the old manual ● record button is gone; this only controls what's DRAWN.
+    private var trackHistory: TrackHistory.Overlay? = null
+    private var historyTracksN = 5
 
     private val weatherRepo by lazy { WeatherRepository(this) }
     private var weatherOverlay: WeatherOverlay? = null
@@ -312,18 +315,33 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             showScreen("wind") { WindFragment() }
         }
         buildSplitMenu()
+        // The Split view tile swaps the main menu for the split-view submenu; ← returns.
+        binding.menuSplit.setOnClickListener {
+            binding.menuPanel.visibility = View.GONE
+            binding.splitMenuPanel.visibility = View.VISIBLE
+        }
+        binding.splitMenuBack.setOnClickListener {
+            binding.splitMenuPanel.visibility = View.GONE
+            binding.menuPanel.visibility = View.VISIBLE
+        }
         // (Anchor moved out of the menu — it's a ⚓ button on the chart toolbar, see wireControls.)
+        binding.menuTracks.setOnClickListener { closeMenu(); showTracksDialog() }
         binding.menuConfig.setOnClickListener { closeMenu(); showConfigDialog() }
         binding.menuAbout.setOnClickListener { closeMenu(); showAboutDialog() }
         selectChart()
     }
 
+    private fun menuOpen() = binding.menuPanel.visibility == View.VISIBLE ||
+        binding.splitMenuPanel.visibility == View.VISIBLE
+
     private fun toggleMenu() {
-        binding.menuPanel.visibility =
-            if (binding.menuPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        if (menuOpen()) closeMenu() else binding.menuPanel.visibility = View.VISIBLE
     }
 
-    private fun closeMenu() { binding.menuPanel.visibility = View.GONE }
+    private fun closeMenu() {
+        binding.menuPanel.visibility = View.GONE
+        binding.splitMenuPanel.visibility = View.GONE
+    }
 
     private fun selectChart() {
         if (mapSplit != null) endMapSplit()
@@ -332,7 +350,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         supportFragmentManager.findFragmentById(R.id.screenHost)?.let {
             supportFragmentManager.beginTransaction().remove(it).commitAllowingStateLoss()
         }
-        flashBottomBar() // back on the chart — surface its tools
+        flashChrome() // back on the chart — surface its tools
     }
 
     private fun showScreen(tag: String, factory: () -> androidx.fragment.app.Fragment) {
@@ -350,6 +368,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
         when {
+            // Back out of the split submenu to the main menu, then out of the menu entirely.
+            binding.splitMenuPanel.visibility == View.VISIBLE -> {
+                binding.splitMenuPanel.visibility = View.GONE
+                binding.menuPanel.visibility = View.VISIBLE
+            }
             binding.menuPanel.visibility == View.VISIBLE -> closeMenu()
             mapSplit != null -> selectChart()   // ends the split (incl. any nav pane) + clears padding
             navMode -> exitNavMode()
@@ -471,7 +494,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
         binding.screenHost.post {
             applyMapSplitRegion()
-            if (a == "chart") flashBottomBar()             // surface the chart toolbar in the chart pane
+            if (a == "chart") flashChrome()             // surface the chart toolbar in the chart pane
         }
     }
 
@@ -479,6 +502,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  bottom/right), plus place each map pane's scale bar and bound the chart's data sidebar. */
     private fun applyMapSplitRegion() {
         val (a, b) = mapSplit ?: return
+        updateZoomControlsMargins()   // sidebar leaves the right edge → buttons hug it
         val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val w = binding.contentArea.width; val h = binding.contentArea.height
         if (w == 0 || h == 0) return
@@ -516,7 +540,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         width = region[2]; height = region[3]; leftMargin = region[0]; topMargin = region[1]
     }
 
-    /** Position a scale bar at the bottom-left of a pane [region]; a nav pane lifts it above the SOG box. */
+    /** Position a scale bar at the bottom-left of a pane [region]; a nav pane lifts it above the SOG
+     *  box. Showing (and auto-hiding) goes through the common flashChrome() policy. */
     private fun placeScaleBar(bar: View, region: IntArray, navPane: Boolean) {
         val d = resources.displayMetrics.density
         val regionBottom = region[1] + region[3]
@@ -525,7 +550,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             bottomMargin = (binding.contentArea.height - regionBottom) +
                 ((if (navPane) NAV_SCALE_BOTTOM_DP else 10) * d).toInt()
         }
-        bar.animate().cancel(); bar.alpha = 1f; bar.visibility = View.VISIBLE
+        flashChrome()
     }
 
     private fun updateScaleBarOn(bar: ScaleBarView, m: MapLibreMap) {
@@ -533,11 +558,20 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         bar.update(m.projection.getMetersPerPixelAtLatitude(lat))
     }
 
-    /** Bound the right data sidebar to a chart pane [region] (top|end anchored) so it scrolls inside
-     *  the pane instead of bleeding into the other one. */
+    /** Bound the right data sidebar to a chart pane [region] (top|end anchored). Content-sized —
+     *  the panel ends after the tide tile, same as the full-screen chart — but capped so the
+     *  zoom/center buttons always fit BELOW it inside the pane (a clipped sidebar scrolls). */
     private fun fitSidebarToPane(region: IntArray) {
+        val d = resources.displayMetrics.density
+        val contentH = binding.hudScroll.getChildAt(0)?.let {
+            it.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+            it.measuredHeight + binding.hudScroll.paddingTop + binding.hudScroll.paddingBottom
+        } ?: region[3]
+        // Room the buttons need under the sidebar: their stack + the 8dp gap + 10dp pane inset.
+        val buttonsH = binding.zoomControls.height.takeIf { it > 0 } ?: ((52 * 3 + 6 * 2) * d).toInt()
+        val reserved = buttonsH + ((8 + 10) * d).toInt()
         binding.hudScroll.updateLayoutParams<FrameLayout.LayoutParams> {
-            height = region[3]
+            height = minOf(contentH, region[3] - reserved)
             topMargin = region[1]
             marginEnd = binding.contentArea.width - (region[0] + region[2])
         }
@@ -604,10 +638,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             m2.uiSettings.isAttributionEnabled = false
             m2.uiSettings.setAllGesturesEnabled(true)
             // Touching / gesturing the Nav map makes the zoom buttons target it.
-            m2.addOnMapClickListener { lastTouchedMap = m2; false }
+            m2.addOnMapClickListener { lastTouchedMap = m2; flashChrome(); false }
             m2.addOnMoveListener(object : MapLibreMap.OnMoveListener {
                 override fun onMoveBegin(d: org.maplibre.android.gestures.MoveGestureDetector) {
                     lastTouchedMap = m2; secondMapGestureAt = android.os.SystemClock.elapsedRealtime()
+                    flashChrome()
                 }
                 override fun onMove(d: org.maplibre.android.gestures.MoveGestureDetector) {}
                 override fun onMoveEnd(d: org.maplibre.android.gestures.MoveGestureDetector) {
@@ -617,6 +652,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             m2.addOnScaleListener(object : MapLibreMap.OnScaleListener {
                 override fun onScaleBegin(d: org.maplibre.android.gestures.StandardScaleGestureDetector) {
                     lastTouchedMap = m2; secondMapGestureAt = android.os.SystemClock.elapsedRealtime()
+                    flashChrome()
                 }
                 override fun onScale(d: org.maplibre.android.gestures.StandardScaleGestureDetector) {}
                 override fun onScaleEnd(d: org.maplibre.android.gestures.StandardScaleGestureDetector) {
@@ -691,10 +727,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         val sail = v.findViewById<android.widget.Button>(R.id.btnModeSail)
         val motor = v.findViewById<android.widget.Button>(R.id.btnModeMotor)
         val mtrSail = v.findViewById<android.widget.Button>(R.id.btnModeMotorSail)
+        // Selected = black (max contrast on the light button face), unselected = blue.
         fun paintMode() {
-            sail.setTextColor(if (boat.mode == BoatMode.SAIL) Color.parseColor("#6fc6e8") else Color.parseColor("#c9d3da"))
-            motor.setTextColor(if (boat.mode == BoatMode.MOTOR) Color.parseColor("#6fc6e8") else Color.parseColor("#c9d3da"))
-            mtrSail.setTextColor(if (boat.mode == BoatMode.MOTORSAIL) Color.parseColor("#6fc6e8") else Color.parseColor("#c9d3da"))
+            sail.setTextColor(if (boat.mode == BoatMode.SAIL) Color.BLACK else Color.parseColor("#6fc6e8"))
+            motor.setTextColor(if (boat.mode == BoatMode.MOTOR) Color.BLACK else Color.parseColor("#6fc6e8"))
+            mtrSail.setTextColor(if (boat.mode == BoatMode.MOTORSAIL) Color.BLACK else Color.parseColor("#6fc6e8"))
         }
         sail.setOnClickListener { boat.mode = BoatMode.SAIL; paintMode() }
         motor.setOnClickListener { boat.mode = BoatMode.MOTOR; paintMode() }
@@ -707,8 +744,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         val unitMetric = v.findViewById<android.widget.Button>(R.id.btnUnitsMetric)
         val unitImperial = v.findViewById<android.widget.Button>(R.id.btnUnitsImperial)
         fun paintUnits() {
-            unitMetric.setTextColor(if (!unitsFt) Color.parseColor("#6fc6e8") else Color.parseColor("#c9d3da"))
-            unitImperial.setTextColor(if (unitsFt) Color.parseColor("#6fc6e8") else Color.parseColor("#c9d3da"))
+            unitMetric.setTextColor(if (!unitsFt) Color.BLACK else Color.parseColor("#6fc6e8"))
+            unitImperial.setTextColor(if (unitsFt) Color.BLACK else Color.parseColor("#6fc6e8"))
         }
         fun setUnits(ft: Boolean) {
             if (unitsFt == ft) return
@@ -745,6 +782,23 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         tvRange.text = fmtRange(profile.defaultRangeNm)
         v.findViewById<android.widget.Button>(R.id.btnRangeDown).setOnClickListener { stepRange(-1) }
         v.findViewById<android.widget.Button>(R.id.btnRangeUp).setOnClickListener { stepRange(+1) }
+
+        // History tracks: how many recorded day-tracks are drawn on the chart. Applied live.
+        val histSteps = listOf(0, 1, 2, 3, 5, 7, 14, 30)
+        val tvHist = v.findViewById<android.widget.TextView>(R.id.tvHistValue)
+        fun fmtHist(n: Int) = if (n == 0) "Off" else n.toString()
+        fun stepHist(dir: Int) {
+            val idx = histSteps.indexOfFirst { it >= historyTracksN }
+                .let { if (it < 0) histSteps.lastIndex else it }
+            historyTracksN = histSteps[(idx + dir).coerceIn(0, histSteps.lastIndex)]
+            getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+                .putInt("history_tracks", historyTracksN).apply()
+            tvHist.text = fmtHist(historyTracksN)
+            reloadTrackHistory()
+        }
+        tvHist.text = fmtHist(historyTracksN)
+        v.findViewById<android.widget.Button>(R.id.btnHistDown).setOnClickListener { stepHist(-1) }
+        v.findViewById<android.widget.Button>(R.id.btnHistUp).setOnClickListener { stepHist(+1) }
 
         v.findViewById<android.widget.Button>(R.id.btnCfgBoat).setOnClickListener {
             dlg.dismiss(); startActivity(android.content.Intent(this, BoatConfigActivity::class.java))
@@ -936,6 +990,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         m.setStyle(builder) { style ->
             loadedStyle = style
             activateLocationComponent(style)
+            // History overlay first, so day-tracks draw BENEATH the live trail/route/track layers.
+            if (trackHistory == null) trackHistory = TrackHistory.Overlay(style)
+            historyTracksN = getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getInt("history_tracks", 5)
+            reloadTrackHistory()
             if (routeManager == null) routeManager = RouteManager(style)
             if (weatherOverlay == null) weatherOverlay = WeatherOverlay(style)
             // Added last so the anchor swing/rode/marker sit on top of route + weather layers.
@@ -958,20 +1016,20 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                 binding.infoCard.visibility = View.GONE
                 val feat = findFeatureAt(m, ll)
                 if (feat != null) showFeatureMenu(feat) else showLocationMenu(ll)
-                flashBottomBar()
+                flashChrome()
                 true
             }
             m.addOnMapClickListener { ll ->
                 lastTouchedMap = m
                 when {
-                    binding.menuPanel.visibility == View.VISIBLE -> closeMenu()
+                    menuOpen() -> closeMenu()
                     else -> {
                         // A tap on a saved mark / route waypoint manages it; otherwise show the depth.
                         val feat = findFeatureAt(m, ll)
                         if (feat != null) showFeatureMenu(feat) else showDepthOverlay(ll)
                     }
                 }
-                flashBottomBar()
+                flashChrome()
                 true
             }
             binding.infoCard.setOnClickListener { binding.infoCard.visibility = View.GONE }
@@ -984,15 +1042,18 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         // A user pan/drag reveals the (auto-hiding) bottom bar. Uses the gesture move listener, NOT
         // camera-move: the camera is in TRACKING mode and moves on every GPS fix, which would keep
         // the bar pinned open under way.
+        // The auto-recenter countdown is held while a gesture is in progress (no snap-back under the
+        // finger) and (re)started on every gesture end — so the timeout runs from the LAST pan/zoom,
+        // not from the first one that dismissed boat-follow.
         m.addOnMoveListener(object : MapLibreMap.OnMoveListener {
-            override fun onMoveBegin(d: org.maplibre.android.gestures.MoveGestureDetector) { lastTouchedMap = m; flashBottomBar() }
-            override fun onMove(d: org.maplibre.android.gestures.MoveGestureDetector) {}
-            override fun onMoveEnd(d: org.maplibre.android.gestures.MoveGestureDetector) = flashBottomBar()
+            override fun onMoveBegin(d: org.maplibre.android.gestures.MoveGestureDetector) { lastTouchedMap = m; flashChrome(); holdRecenter() }
+            override fun onMove(d: org.maplibre.android.gestures.MoveGestureDetector) = holdRecenter()
+            override fun onMoveEnd(d: org.maplibre.android.gestures.MoveGestureDetector) { flashChrome(); scheduleRecenterIfUnfollowed() }
         })
         m.addOnScaleListener(object : MapLibreMap.OnScaleListener {   // pinch-zoom counts as a touch
-            override fun onScaleBegin(d: org.maplibre.android.gestures.StandardScaleGestureDetector) { lastTouchedMap = m }
-            override fun onScale(d: org.maplibre.android.gestures.StandardScaleGestureDetector) {}
-            override fun onScaleEnd(d: org.maplibre.android.gestures.StandardScaleGestureDetector) {}
+            override fun onScaleBegin(d: org.maplibre.android.gestures.StandardScaleGestureDetector) { lastTouchedMap = m; holdRecenter(); flashChrome() }
+            override fun onScale(d: org.maplibre.android.gestures.StandardScaleGestureDetector) = holdRecenter()
+            override fun onScaleEnd(d: org.maplibre.android.gestures.StandardScaleGestureDetector) = scheduleRecenterIfUnfollowed()
         })
 
         // Live scale bar, recomputed as the camera zooms/pans.
@@ -1044,7 +1105,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                 // emulator's software GL translator (mbgl MapRenderer::render → glDrawElements). One
                 // render per notch is both safer and the conventional feel for a scroll wheel.
                 m.moveCamera(CameraUpdateFactory.zoomBy(notches.toDouble() * ZOOM_PER_WHEEL_NOTCH, anchor))
-                flashBottomBar()
+                flashChrome()
                 return true
             }
         }
@@ -1087,7 +1148,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
             .putBoolean("depth_labels", depthLabelsOn).apply()
         applyDepthLabels()
-        flashBottomBar()
+        flashChrome()
     }
 
     private fun applyDepthLabels() {
@@ -1223,12 +1284,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     // --- Phase 2 controls ---------------------------------------------------
 
     private fun wireControls() {
-        binding.btnUndo.setOnClickListener { routeManager?.undoWaypoint(); refreshInfo(); flashBottomBar() }
-        binding.btnClear.setOnClickListener { routeManager?.clearRoute(); refreshInfo(); flashBottomBar() }
-        binding.btnRec.setOnClickListener { toggleRecording(); flashBottomBar() }
+        binding.btnUndo.setOnClickListener { routeManager?.undoWaypoint(); refreshInfo(); flashChrome() }
+        binding.btnClear.setOnClickListener { routeManager?.clearRoute(); refreshInfo(); flashChrome() }
 
         binding.btnWx.setOnClickListener {
-            flashBottomBar()
+            flashChrome()
             val show = binding.weatherPanel.visibility != View.VISIBLE
             binding.weatherPanel.visibility = if (show) View.VISIBLE else View.GONE
             repositionBottomOverlays()
@@ -1249,18 +1309,18 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         })
 
         // Auto-route the current waypoints (propulsion mode is set in the Configuration dialog).
-        binding.btnRoute.setOnClickListener { computeRoute(); flashBottomBar() }
-        binding.btnZoomIn.setOnClickListener { zoomBy(+1.0); flashBottomBar() }
-        binding.btnZoomOut.setOnClickListener { zoomBy(-1.0); flashBottomBar() }
-        binding.btnCenterBoat.setOnClickListener { flashBottomBar(); centerOnBoat() }
-        binding.btnAnchor.setOnClickListener { flashBottomBar(); showAnchorDialog() }
+        binding.btnRoute.setOnClickListener { computeRoute(); flashChrome() }
+        binding.btnZoomIn.setOnClickListener { zoomBy(+1.0); flashChrome() }
+        binding.btnZoomOut.setOnClickListener { zoomBy(-1.0); flashChrome() }
+        binding.btnCenterBoat.setOnClickListener { flashChrome(); centerOnBoat() }
+        binding.btnAnchor.setOnClickListener { flashChrome(); showAnchorDialog() }
         updateAnchorButton()   // initial enabled/greyed state
         binding.btnDepth.setOnClickListener { toggleDepthLabels() }
-        binding.btnMark.setOnClickListener { flashBottomBar(); dropMarkAtBoat() }
+        binding.btnMark.setOnClickListener { flashChrome(); dropMarkAtBoat() }
 
         // Touching the toolbar keeps it awake; then show it once on launch.
-        binding.leftToolbar.setOnTouchListener { _, _ -> flashBottomBar(); false }
-        flashBottomBar()
+        binding.leftToolbar.setOnTouchListener { _, _ -> flashChrome(); false }
+        flashChrome()
     }
 
     // --- Marks + route waypoints: tap / long-press interaction --------------
@@ -1319,7 +1379,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             .setTitle("Location")
             .setItems(arrayOf("Add waypoint", "Add mark", "Share location")) { _, which ->
                 when (which) {
-                    0 -> { routeManager?.addWaypoint(ll); refreshInfo(); flashBottomBar() }
+                    0 -> { routeManager?.addWaypoint(ll); refreshInfo(); flashChrome() }
                     1 -> {
                         val t = System.currentTimeMillis()               // the new mark's id == this ts
                         val name = markStore?.add(ll.latitude, ll.longitude, t) ?: return@setItems
@@ -1523,7 +1583,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         stopAnchorService()
         anchorMaxDistM = 0.0
         binding.tvAnchorBanner.visibility = View.GONE
-        flashBottomBar()
+        flashChrome()
         updateAnchorButton()
     }
 
@@ -1775,16 +1835,16 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         retireChartUi()
         binding.navHud.visibility = View.VISIBLE
         liftTopLeftOverlays(true)   // ☰ menu + depth card drop below the STEER panel
+        updateZoomControlsMargins() // sidebar gone → zoom/center buttons hug the right edge
         // Keep the chart's scale bar on the nav screen too, lifted clear of the bottom-left SOG panel
         // (the panel is 252·u ≈ 84 dp tall). Full nav only — a nav split pane manages its own chrome.
+        // Shows via the common flash → same auto-hide as everywhere else.
         if (mapSplit == null) {
             binding.scaleBar.updateLayoutParams<FrameLayout.LayoutParams> {
                 bottomMargin = (NAV_SCALE_BOTTOM_DP * resources.displayMetrics.density).toInt()
             }
-            binding.scaleBar.animate().cancel()
-            binding.scaleBar.alpha = 1f
-            binding.scaleBar.visibility = View.VISIBLE
             map?.let { updateScaleBar(it) }
+            flashChrome()
         }
         // Course-up + tilt for a forward-looking perspective (raster tiles, so it's a tilted plane,
         // not extruded terrain). The location component drives target + bearing from the GPS course;
@@ -1810,7 +1870,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         binding.navHud.visibility = View.GONE
         binding.hudScroll.visibility = View.VISIBLE
         liftTopLeftOverlays(false)   // restore ☰ menu + depth card to the top-left
-        // Drop the scale bar back to its chart position (flashBottomBar re-shows it there).
+        updateZoomControlsMargins()  // sidebar back → zoom/center buttons clear it again
+        // Drop the scale bar back to its chart position (flashChrome re-shows it there).
         binding.scaleBar.updateLayoutParams<FrameLayout.LayoutParams> {
             bottomMargin = (10 * resources.displayMetrics.density).toInt()
         }
@@ -1823,7 +1884,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             }
             m.animateCamera(CameraUpdateFactory.tiltTo(0.0), 400)
         }
-        flashBottomBar()
+        flashChrome()
     }
 
     /** Recompute the Simrad nav-HUD snapshot from the live fix + active route waypoint. */
@@ -1882,7 +1943,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      * or was hand-copied — the one case where the automatic update can never help you.
      */
     private fun reloadCharts() {
-        binding.menuPanel.visibility = View.GONE
+        closeMenu()
         binding.dataOverlay.visibility = View.VISIBLE
         binding.progressData.visibility = View.INVISIBLE
         binding.btnDataAction.visibility = View.GONE
@@ -2314,22 +2375,67 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     private fun applyOrientationChrome(landscape: Boolean) {
         val d = resources.displayMetrics.density
         fun dp(v: Int) = (v * d).toInt()
-        // HUD: full-height scrollable sidebar in landscape (short screen clips the stacked tiles);
-        // content-sized top-right box in portrait, as before.
+        // HUD sidebar: content-sized in BOTH orientations (the panel ends after the tide tile, same
+        // as portrait) so the zoom buttons can sit beneath it at the right edge. A ScrollView caps
+        // at the screen height and scrolls internally if a short screen clips the stacked tiles.
         binding.hudScroll.updateLayoutParams<FrameLayout.LayoutParams> {
-            height = if (landscape) FrameLayout.LayoutParams.MATCH_PARENT
-                     else FrameLayout.LayoutParams.WRAP_CONTENT
+            height = FrameLayout.LayoutParams.WRAP_CONTENT
         }
         // Weather panel + zoom buttons clear the 116dp sidebar in landscape so nothing hides under it.
         binding.weatherPanel.updateLayoutParams<FrameLayout.LayoutParams> {
             marginEnd = if (landscape) dp(116) else 0
         }
-        binding.zoomControls.updateLayoutParams<FrameLayout.LayoutParams> {
-            marginEnd = if (landscape) dp(126) else dp(10)
-            bottomMargin = if (landscape) dp(96) else dp(120)
-        }
+        updateZoomControlsMargins()
         // Keep the zoom controls / scale bar clear of whichever bottom panel is open.
         repositionBottomOverlays()
+    }
+
+    /** Zoom/center buttons: bottom-right of the pane holding their target map, close to that
+     *  pane's right edge, and never overlapping the (content-sized) sidebar above them.
+     *  - full-screen chart / nav → bottom-right of the screen
+     *  - Chart+Nav (two maps)   → bottom-right of pane B (the nav map)
+     *  - map + gauge split      → bottom-right of pane A (the gauge pane is opaque and would
+     *                             cover them at the screen edge) */
+    private fun updateZoomControlsMargins() {
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val base = if (landscape) dp(96) else dp(120)
+        val w = binding.contentArea.width; val h = binding.contentArea.height
+        var endInset = dp(10)          // from the screen's right edge
+        var paneBottomInset = 0        // pane bottom → screen bottom distance
+        val split = mapSplit
+        if (split != null && w > 0 && h > 0) {
+            val halfW = w / 2; val halfH = h / 2
+            val bothMaps = isMapScreen(split.first) && isMapScreen(split.second)
+            // Pane B (right/bottom) for two live maps, else pane A (left/top) holds the only map.
+            val region = when {
+                bothMaps -> if (landscape) intArrayOf(halfW, 0, halfW, h) else intArrayOf(0, halfH, w, halfH)
+                else -> if (landscape) intArrayOf(0, 0, halfW, h) else intArrayOf(0, 0, w, halfH)
+            }
+            endInset = (w - (region[0] + region[2])) + dp(10)
+            paneBottomInset = h - (region[1] + region[3])
+        }
+        binding.zoomControls.updateLayoutParams<FrameLayout.LayoutParams> {
+            marginEnd = endInset
+            bottomMargin = paneBottomInset + base
+        }
+        // The sidebar sits at the same pane edge on chart screens (base + chart-pane splits);
+        // post-layout, if the bottom-anchored stack would reach up into it, drop the buttons to
+        // just below it — but never below their pane (an opaque gauge could sit there).
+        binding.contentArea.post {
+            val sidebarAboveButtons = !navMode && binding.hudScroll.visibility == View.VISIBLE &&
+                (mapSplit == null || (chartPaneSplit() && !bothMapsActive()))
+            if (!sidebarAboveButtons) return@post
+            val ch = binding.contentArea.height
+            val btnH = binding.zoomControls.height
+            if (ch == 0 || btnH == 0) return@post
+            val current = paneBottomInset + base
+            val belowSidebar = ch - (binding.hudScroll.bottom + dp(8)) - btnH
+            if (belowSidebar < current) binding.zoomControls.updateLayoutParams<FrameLayout.LayoutParams> {
+                bottomMargin = maxOf(paneBottomInset + dp(10), belowSidebar)
+            }
+        }
     }
 
     /** Keep the zoom controls + scale bar ABOVE whichever bottom panel (weather or anchor) is open —
@@ -2364,69 +2470,192 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     // The left icon toolbar + on-map scale bar stay out of the way: shown on any chart interaction,
     // then faded out after a few idle seconds so the plotter is uncluttered under way. The weather
     // panel is a separate manual toggle and is not part of this group.
-    private val chartUi get() = listOf<View>(binding.leftToolbar, binding.scaleBar)
-    private val barHider = Runnable { hideBottomBar() }
+    // --- Auto-hiding chrome — ONE policy for every screen --------------------
+    // All transient chrome (left toolbar + scale bars) obeys a single policy: any map
+    // interaction shows it, one shared timer fades it after CHROME_IDLE_MS. Which views
+    // participate depends on the screen; the show/fade mechanics never differ.
 
-    /** The plain chart is the base screen. The left toolbar + scale bar belong here (incl. while
-     *  anchored — the ⚓ raise/adjust control lives on the toolbar) — not in nav mode and not under a
-     *  covering fragment (Route/Weather/…). */
+    private val chromeHider = Runnable { hideChrome() }
+
+    /** The plain chart is the base screen. The left toolbar belongs here (incl. while anchored —
+     *  the ⚓ raise/adjust control lives on the toolbar) — not in nav mode and not under a covering
+     *  fragment (Route/Weather/…). */
     private fun onChartBase(): Boolean =
         !navMode && binding.screenHost.visibility != View.VISIBLE
 
     /** True when a chart pane is showing in a split — its toolbar should be reachable (waypoints,
-     *  marks, anchor, depth + weather toggles), but the scale bar is placed by the split, not here. */
+     *  marks, anchor, depth + weather toggles). */
     private fun chartPaneSplit() = mapSplit?.first == "chart"
 
-    private fun flashBottomBar() {
-        // The chart toolbar/scale bar only live on the chart base (or a chart split pane); every other
-        // screen has its own control surface and must not be able to summon them.
-        val views = when {
-            onChartBase() -> chartUi
-            chartPaneSplit() -> listOf<View>(binding.leftToolbar)  // scale bar is placed by the split
-            else -> return
+    /** The transient chrome for the current screen: the chart toolbar on the chart base / a chart
+     *  split pane, plus the screen's scale bar(s) — both in a two-map split, the primary bar on any
+     *  other map screen, none under a covering gauge screen. */
+    private fun transientChrome(): List<View> {
+        val views = ArrayList<View>()
+        if (onChartBase() || chartPaneSplit()) views.add(binding.leftToolbar)
+        when {
+            bothMapsActive() -> { views.add(binding.scaleBar); views.add(binding.scaleBar2) }
+            mapSplit != null || navMode || onChartBase() -> views.add(binding.scaleBar)
         }
+        return views
+    }
+
+    /** Show the current screen's transient chrome and restart the shared idle fade. */
+    private fun flashChrome() {
+        val views = transientChrome()
+        if (views.isEmpty()) return
         for (v in views) {
-            v.removeCallbacks(barHider)
             v.animate().cancel()
             v.alpha = 1f
             v.visibility = View.VISIBLE
         }
-        binding.leftToolbar.postDelayed(barHider, BOTTOM_BAR_IDLE_MS)
+        binding.contentArea.removeCallbacks(chromeHider)
+        binding.contentArea.postDelayed(chromeHider, CHROME_IDLE_MS)
     }
 
-    private fun hideBottomBar() {
-        // In a chart split only the toolbar auto-hides; the pane's scale bar stays put.
-        val views = if (chartPaneSplit()) listOf<View>(binding.leftToolbar) else chartUi
-        for (v in views) {
-            v.animate().alpha(0f).setDuration(220)
-                .withEndAction { v.visibility = View.INVISIBLE }.start()
+    private fun hideChrome() {
+        for (v in listOf<View>(binding.leftToolbar, binding.scaleBar, binding.scaleBar2)) {
+            if (v.visibility == View.VISIBLE) {
+                v.animate().alpha(0f).setDuration(220)
+                    .withEndAction { v.visibility = View.INVISIBLE }.start()
+            }
         }
     }
 
-    /** Hide the auto-hiding toolbar/scale bar + the Wx panel when entering a full-screen chart mode. */
+    /** Hide the auto-hiding toolbar/scale bars + the Wx panel when entering a full-screen chart mode. */
     private fun retireChartUi(clearWeather: Boolean = true) {
-        binding.leftToolbar.removeCallbacks(barHider)
-        for (v in chartUi) { v.animate().cancel(); v.visibility = View.GONE }
+        binding.contentArea.removeCallbacks(chromeHider)
+        for (v in listOf<View>(binding.leftToolbar, binding.scaleBar, binding.scaleBar2)) {
+            v.animate().cancel(); v.visibility = View.GONE
+        }
         binding.weatherPanel.visibility = View.GONE
         repositionBottomOverlays()
         // A chart split keeps the wind overlay on its chart pane, so don't clear it there.
         if (clearWeather) { weatherOverlay?.clear(); stopWxTicker() }
     }
 
-    private fun toggleRecording() {
-        recording = !recording
-        if (recording) {
-            routeManager?.startTrack()
-            lastLocation?.let {
-                routeManager?.addTrackPoint(it.latitude, it.longitude, System.currentTimeMillis())
-            }
-            binding.btnRec.text = "■"
-            binding.btnRec.setTextColor(Color.parseColor("#FF5252"))
-        } else {
-            binding.btnRec.text = "●"
-            binding.btnRec.setTextColor(Color.parseColor("#D6E0E6"))
+    // --- Track history (always-on recording, drawn + browsed) ----------------
+
+    /** The WatchService's always-on track directory (one CSV per UTC day). */
+    private fun trackDir() = File(getExternalFilesDir(null) ?: filesDir, "tracks")
+
+    /** (Re)load the last [historyTracksN] day-tracks onto the chart, off the main thread. */
+    private fun reloadTrackHistory() {
+        val overlay = trackHistory ?: return
+        val n = historyTracksN
+        val dir = trackDir()
+        Thread {
+            val tracks = if (n <= 0) emptyList()
+                else TrackHistory.listDays(dir).take(n).map { TrackHistory.loadDay(dir, it) }
+            runOnUiThread { if (trackHistory === overlay) overlay.set(tracks) }
+        }.start()
+    }
+
+    /** Menu → Tracks: every stored day-track with share / export / delete. */
+    private fun showTracksDialog() {
+        val dir = trackDir()
+        val scroll = android.widget.ScrollView(this)
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#101418"))
+            setPadding(dp(20), dp(16), dp(20), dp(16))
         }
-        refreshInfo()
+        scroll.addView(list)
+        val dlg = androidx.appcompat.app.AlertDialog.Builder(this).setView(scroll).create()
+
+        fun row(text: String, sub: String, day: Long, refresh: () -> Unit): View =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setBackgroundResource(R.drawable.bg_menu_tile)
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                    .apply { setMargins(0, dp(3), 0, dp(3)) }
+                addView(TextView(this@MainActivity).apply {
+                    this.text = text; setTextColor(Color.WHITE); textSize = 14f
+                })
+                addView(TextView(this@MainActivity).apply {
+                    this.text = sub; setTextColor(Color.parseColor("#8FA6B4")); textSize = 11f
+                })
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    fun action(label: String, onTap: () -> Unit) =
+                        addView(TextView(this@MainActivity).apply {
+                            this.text = label; setTextColor(Color.parseColor("#6FC6E8")); textSize = 13f
+                            setPadding(0, dp(6), dp(24), 0)
+                            setOnClickListener { onTap() }
+                        })
+                    action("Share") { shareTrackJson(day) }
+                    action("Export") { exportTrackJson(day) }
+                    action("Delete") {
+                        androidx.appcompat.app.AlertDialog.Builder(this@MainActivity)
+                            .setMessage("Delete the ${TrackHistory.dayTitle(day)} track?")
+                            .setPositiveButton("Delete") { _, _ ->
+                                File(dir, "track-$day.csv").delete()
+                                reloadTrackHistory(); refresh()
+                            }
+                            .setNegativeButton("Cancel", null).show()
+                    }
+                })
+            }
+
+        fun refill() {
+            list.removeAllViews()
+            list.addView(TextView(this).apply {
+                text = "Tracks"; setTextColor(Color.WHITE); textSize = 19f; setPadding(0, 0, 0, dp(10))
+            })
+            val days = TrackHistory.listDays(dir)
+            if (days.isEmpty()) {
+                list.addView(TextView(this).apply {
+                    text = "No recorded tracks yet"; setTextColor(Color.parseColor("#8FA6B4")); textSize = 13f
+                })
+                return
+            }
+            // Stats parse every file; tracks are small CSVs but keep the UI thread clean anyway.
+            Thread {
+                val rows = days.map { day ->
+                    val t = TrackHistory.loadDay(dir, day)
+                    Triple(day, t.points.size,
+                        String.format(Locale.US, "%.1f nm", t.distanceNm()))
+                }
+                runOnUiThread {
+                    if (!dlg.isShowing) return@runOnUiThread
+                    for ((day, pts, dist) in rows) list.addView(
+                        row(TrackHistory.dayTitle(day), "$dist · $pts points", day) { refill() })
+                }
+            }.start()
+        }
+        refill()
+        dlg.show()
+    }
+
+    private fun shareTrackJson(day: Long) {
+        Thread {
+            val json = TrackHistory.toJson(TrackHistory.loadDay(trackDir(), day))
+            runOnUiThread {
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(android.content.Intent.EXTRA_SUBJECT, "MyNavvy track ${TrackHistory.dayTitle(day)}")
+                    putExtra(android.content.Intent.EXTRA_TEXT, json)
+                }
+                startActivity(android.content.Intent.createChooser(send, "Share track"))
+            }
+        }.start()
+    }
+
+    private fun exportTrackJson(day: Long) {
+        Thread {
+            val json = TrackHistory.toJson(TrackHistory.loadDay(trackDir(), day))
+            val msg = try {
+                val out = File(File(getExternalFilesDir(null), "logs").apply { mkdirs() },
+                    "mynavvy_track_${TrackHistory.dayLabel(day).replace(' ', '_')}_$day.json")
+                out.writeText(json)
+                "Saved ${out.path}"
+            } catch (e: Exception) {
+                Diagnostics.capture(e); "Export failed: ${e.message}"
+            }
+            runOnUiThread { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
+        }.start()
     }
 
     private fun saveGpx() {
@@ -2623,6 +2852,16 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
     }
 
+    /** Mid-gesture: hold any pending auto-recenter so the chart can't snap back under the finger. */
+    private fun holdRecenter() = recenterHandler.removeCallbacks(recenterRunnable)
+
+    /** Gesture over: (re)start the auto-recenter countdown — but only if boat-follow is actually
+     *  off (camera NONE). A pinch while still tracking shouldn't arm a pointless timer. */
+    private fun scheduleRecenterIfUnfollowed() {
+        val lc = map?.locationComponent ?: return
+        if (lc.isLocationComponentActivated && lc.cameraMode == CameraMode.NONE) scheduleRecenter()
+    }
+
     /** User moved the chart off the boat — arm the auto-return (unless a fixed framing owns the
      *  camera: the anchor watch, or a full-screen fragment). */
     private fun scheduleRecenter() {
@@ -2668,12 +2907,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         updateAnchorButton()   // safety: grey the ⚓ out while making way (unless already anchored)
         // Session breadcrumb trail (visual) — the persistent 6-month track is recorded in the service.
         routeManager?.addTrailPoint(location.latitude, location.longitude)
-        if (recording) {
-            routeManager?.addTrackPoint(location.latitude, location.longitude, System.currentTimeMillis())
-        }
 
         updateHud()
-        if (recording) refreshInfo()
         if (anchorMode) refreshAnchorUi()
         if (navHudActive()) refreshNavUi()
         // Chart+Nav: follow the boat on the second map, but hold off for 10 s after the user pans it.
@@ -2748,7 +2983,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         private const val ZOOM_PER_WHEEL_NOTCH = 0.5
 
         /** Idle time before the bottom control bar fades away. */
-        private const val BOTTOM_BAR_IDLE_MS = 4000L
+        /** Idle timeout for ALL auto-hiding chrome (toolbar + scale bars), every screen. */
+        private const val CHROME_IDLE_MS = 4000L
 
         /** SOG (kn) above which the trip clock counts the boat as underway (≈ engine running). */
         private const val TRIP_MOVING_KN = 0.5

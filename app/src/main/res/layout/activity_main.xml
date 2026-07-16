@@ -165,7 +165,6 @@
         <Button android:id="@+id/btnUndo" style="@style/ToolIcon" android:text="↶" />
         <Button android:id="@+id/btnClear" style="@style/ToolIcon" android:text="✕" />
         <Button android:id="@+id/btnRoute" style="@style/ToolIcon" android:text="⟿" />
-        <Button android:id="@+id/btnRec" style="@style/ToolIcon" android:text="●" />
         <Button android:id="@+id/btnWx" style="@style/ToolIcon" android:text="☁" />
         <Button android:id="@+id/btnDepth" style="@style/ToolIcon" android:text="≋" />
         <Button android:id="@+id/btnMark" style="@style/ToolIcon" android:text="⚑" />
@@ -319,23 +318,27 @@
               <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_wind" />
               <TextView style="@style/MenuTileLabel" android:text="Wind" />
           </LinearLayout>
+          <LinearLayout android:id="@+id/menuSplit" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_split" />
+              <TextView style="@style/MenuTileLabel" android:text="Split view" />
+          </LinearLayout>
       </LinearLayout>
 
       <View android:layout_width="match_parent" android:layout_height="1dp"
           android:layout_marginVertical="6dp" android:background="#33ffffff" />
 
-      <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_marginStart="8dp" android:layout_marginBottom="2dp"
-          android:textColor="#8FA6B4" android:textSize="11sp"
-          android:letterSpacing="0.1" android:text="SPLIT VIEW" />
-
-      <!-- Split-view combo rows are built in code (MainActivity.buildSplitMenu) from a screen
-           registry, each with a joined twin-icon of the two screens. -->
-      <LinearLayout android:id="@+id/splitSection" android:layout_width="match_parent"
-          android:layout_height="wrap_content" android:orientation="vertical" />
-
-      <View android:layout_width="match_parent" android:layout_height="1dp"
-          android:layout_marginVertical="6dp" android:background="#33ffffff" />
+      <LinearLayout android:id="@+id/menuTracks" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:layout_margin="4dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingHorizontal="12dp" android:paddingVertical="10dp"
+          android:background="@drawable/bg_menu_tile"
+          android:clickable="true" android:focusable="true">
+          <ImageView android:layout_width="26dp" android:layout_height="26dp"
+              android:src="@drawable/ic_menu_tracks" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginStart="12dp" android:textColor="#C7D2DC"
+              android:textSize="13sp" android:text="Tracks" />
+      </LinearLayout>
 
       <LinearLayout android:id="@+id/menuConfig" android:layout_width="match_parent"
           android:layout_height="wrap_content" android:layout_margin="4dp"
@@ -363,6 +366,50 @@
               android:layout_marginStart="12dp" android:textColor="#C7D2DC"
               android:textSize="13sp" android:text="About &amp; credits" />
       </LinearLayout>
+  </LinearLayout>
+  </ScrollView>
+
+  <!-- Split-view submenu: opened by the "Split view" tile above, same anchor as the main menu.
+       Lists every screen combo (rows built in MainActivity.buildSplitMenu). -->
+  <ScrollView
+      android:id="@+id/splitMenuPanel"
+      android:layout_width="wrap_content"
+      android:layout_height="match_parent"
+      android:layout_gravity="top|start"
+      android:layout_marginStart="8dp"
+      android:layout_marginTop="56dp"
+      android:layout_marginBottom="8dp"
+      android:elevation="20dp"
+      android:scrollbars="none"
+      android:visibility="gone">
+
+  <!-- Fixed width: every child is match_parent, so wrap_content would balloon to full screen. -->
+  <LinearLayout
+      android:layout_width="216dp"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="#F0101418"
+      android:padding="8dp">
+
+      <LinearLayout android:id="@+id/splitMenuBack" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:layout_margin="4dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingHorizontal="12dp" android:paddingVertical="10dp"
+          android:background="@drawable/bg_menu_tile"
+          android:clickable="true" android:focusable="true">
+          <TextView android:layout_width="26dp" android:layout_height="wrap_content"
+              android:gravity="center" android:text="←" android:textSize="18sp"
+              android:textColor="#C7D2DC" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginStart="12dp" android:textColor="#8FA6B4"
+              android:textSize="11sp" android:letterSpacing="0.1" android:text="SPLIT VIEW" />
+      </LinearLayout>
+
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:layout_marginVertical="6dp" android:background="#33ffffff" />
+
+      <LinearLayout android:id="@+id/splitSection" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:orientation="vertical" />
   </LinearLayout>
   </ScrollView>
 
