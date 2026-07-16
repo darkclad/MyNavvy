@@ -32,7 +32,6 @@ class SplitScreenFragment : Fragment() {
     private fun landscape() =
         resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?

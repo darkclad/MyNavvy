@@ -142,7 +142,6 @@ class RouteFragment : Fragment(R.layout.fragment_route) {
     }
 
     private fun clock(ms: Long) = SimpleDateFormat("HH:mm", Locale.US).format(Date(ms))
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     companion object {
         private val LABEL = Color.parseColor("#8FA6B4")

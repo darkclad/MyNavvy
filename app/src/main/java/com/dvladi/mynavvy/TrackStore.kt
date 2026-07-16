@@ -27,7 +27,7 @@ class TrackStore(private val dir: File, var retentionDays: Int = DEFAULT_RETENTI
     /** Record a fix if it's moved [MIN_MOVE_M] or [MIN_INTERVAL_MS] has passed since the last one. */
     fun add(ms: Long, lat: Double, lon: Double, sogKn: Double, cogDeg: Double?) {
         if (!lastLat.isNaN()) {
-            val movedM = haversineM(lastLat, lastLon, lat, lon)
+            val movedM = GeoUtils.distanceM(lastLat, lastLon, lat, lon)
             if (movedM < MIN_MOVE_M && ms - lastMs < MIN_INTERVAL_MS) return
         }
         lastMs = ms; lastLat = lat; lastLon = lon
@@ -54,15 +54,6 @@ class TrackStore(private val dir: File, var retentionDays: Int = DEFAULT_RETENTI
         }
     }
 
-    private fun haversineM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val r = 6_371_000.0
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = Math.sin(dLat / 2).let { it * it } +
-            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
-            Math.sin(dLon / 2).let { it * it }
-        return r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    }
 
     companion object {
         private const val TAG = "TrackStore"

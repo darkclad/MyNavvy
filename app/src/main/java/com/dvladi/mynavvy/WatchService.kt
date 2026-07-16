@@ -128,13 +128,6 @@ class WatchService : Service(), LocationListener {
         } catch (t: Throwable) { Log.w(TAG, "requestLocationUpdates failed: ${t.message}") }
     }
 
-    /** True on the Android emulator (goldfish/ranchu), so we can suppress its fake GPS in sim mode. */
-    private fun isEmulator(): Boolean =
-        Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu") ||
-        Build.FINGERPRINT.startsWith("generic") || Build.FINGERPRINT.contains("emulator", true) ||
-        Build.MODEL.contains("Emulator", true) || Build.MODEL.contains("Android SDK built for", true) ||
-        Build.MANUFACTURER.contains("Genymotion", true) || Build.PRODUCT.contains("sdk") ||
-        (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
 
     // --- fix pipeline --------------------------------------------------------
 
@@ -145,7 +138,7 @@ class WatchService : Service(), LocationListener {
     private fun handleFix(location: Location, trusted: Boolean) {
         val nowMs = SystemClock.elapsedRealtime()
         if (!trusted) {
-            val ageMs = fixAgeMs(location, nowMs)
+            val ageMs = location.ageMs(nowMs)
             if (ageMs > MAX_FIX_AGE_MS) { Log.w(TAG, "stale fix ignored: ${ageMs / 1000}s"); return }
             if (location.hasAccuracy() && location.accuracy > MAX_ACCURACY_M) {
                 Log.w(TAG, "imprecise fix ignored: ±${location.accuracy.toInt()} m"); return
@@ -153,7 +146,7 @@ class WatchService : Service(), LocationListener {
         }
         val prev = lastGood
         if (!trusted && prev != null) {
-            val jumpM = distM(prev.latitude, prev.longitude, location.latitude, location.longitude)
+            val jumpM = GeoUtils.distanceM(prev.latitude, prev.longitude, location.latitude, location.longitude)
             val dtSec = (nowMs - lastFixMs).coerceAtLeast(1L) / 1000.0
             val impliedKn = (jumpM / 1852.0) / (dtSec / 3600.0)
             if (jumpM > GLITCH_MIN_M && impliedKn > GLITCH_MAX_KN) {
@@ -170,7 +163,7 @@ class WatchService : Service(), LocationListener {
         // COG from successive positions; hold when nearly still, reset on a teleport.
         var teleported = false
         if (prev != null) {
-            val movedM = distM(prev.latitude, prev.longitude, location.latitude, location.longitude)
+            val movedM = GeoUtils.distanceM(prev.latitude, prev.longitude, location.latitude, location.longitude)
             when {
                 movedM > TELEPORT_M -> { cogDeg = null; teleported = true }
                 movedM >= COG_MIN_MOVE_M -> cogDeg = GeoUtils.bearingDeg(
@@ -192,7 +185,7 @@ class WatchService : Service(), LocationListener {
     // --- anchor watch --------------------------------------------------------
 
     private fun evaluateAnchor(loc: Location) {
-        lastDistM = distM(anchorLat, anchorLon, loc.latitude, loc.longitude)
+        lastDistM = GeoUtils.distanceM(anchorLat, anchorLon, loc.latitude, loc.longitude)
         dragging = alarmEnabled && lastDistM > radiusM
         if (dragging) startAlarm() else stopAlarm()
         updateNotif()
@@ -321,18 +314,7 @@ class WatchService : Service(), LocationListener {
 
     // --- helpers -------------------------------------------------------------
 
-    private fun distM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val out = FloatArray(1)
-        Location.distanceBetween(lat1, lon1, lat2, lon2, out)
-        return out[0].toDouble()
-    }
 
-    private fun fixAgeMs(loc: Location, nowElapsedMs: Long): Long {
-        val ern = loc.elapsedRealtimeNanos
-        if (ern > 0L) return nowElapsedMs - ern / 1_000_000L
-        if (loc.time > 0L) return System.currentTimeMillis() - loc.time
-        return 0L
-    }
 
     override fun onDestroy() {
         stopAlarm()

@@ -13,16 +13,20 @@ object GeoUtils {
     private const val EARTH_KM = 6371.0088
     private const val KM_TO_NM = 0.5399568
 
-    /** Great-circle distance in nautical miles. */
-    fun distanceNm(a: LatLng, b: LatLng): Double {
-        val dLat = Math.toRadians(b.latitude - a.latitude)
-        val dLon = Math.toRadians(b.longitude - a.longitude)
-        val la1 = Math.toRadians(a.latitude)
-        val la2 = Math.toRadians(b.latitude)
+    /** Great-circle distance in metres, raw coordinates (the one haversine in the app). */
+    fun distanceM(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val la1 = Math.toRadians(lat1)
+        val la2 = Math.toRadians(lat2)
         val h = sin(dLat / 2) * sin(dLat / 2) +
             cos(la1) * cos(la2) * sin(dLon / 2) * sin(dLon / 2)
-        return 2 * EARTH_KM * atan2(sqrt(h), sqrt(1 - h)) * KM_TO_NM
+        return 2 * EARTH_KM * 1000.0 * atan2(sqrt(h), sqrt(1 - h))
     }
+
+    /** Great-circle distance in nautical miles. */
+    fun distanceNm(a: LatLng, b: LatLng): Double =
+        distanceM(a.latitude, a.longitude, b.latitude, b.longitude) / 1000.0 * KM_TO_NM
 
     /** Initial true bearing a->b, degrees 0..360. */
     fun bearingDeg(a: LatLng, b: LatLng): Double {

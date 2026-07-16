@@ -41,7 +41,6 @@ class TripFragment : Fragment() {
     private lateinit var tvAvg: TextView
     private lateinit var tvMax: TextView
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?

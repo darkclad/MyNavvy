@@ -38,7 +38,6 @@ class WindFragment : Fragment() {
     private lateinit var tvSpeed: TextView
     private lateinit var tvApparent: TextView
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?

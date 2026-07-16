@@ -411,7 +411,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         for ((a, b) in splitCombos) list.addView(splitRow(a, b))
     }
 
-    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun splitRow(a: String, b: String): View {
         val da = screenDefs.getValue(a); val db = screenDefs.getValue(b)
@@ -1795,14 +1794,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     // top with a heading tape; SOG · route remaining · COG on the bottom). The HUD sidebar + chart
     // bar are hidden while it's on; the steering data is fed from onLocationChanged.
 
-    /** True on the Android emulator — its guest GLES encoder SIGSEGVs in glDrawElements when MapLibre
-     *  renders a TILTED map (any GPU backend), so nav mode stays flat (course-up) there. Real GPUs are
-     *  fine, so devices get the full 3D tilt. */
-    private fun isEmulator(): Boolean =
-        Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu") ||
-        Build.FINGERPRINT.startsWith("generic") || Build.FINGERPRINT.contains("emulator", true) ||
-        Build.MODEL.contains("Emulator", true) || Build.MODEL.contains("Android SDK built for", true) ||
-        Build.PRODUCT.contains("sdk") || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
 
     /** Nav-mode camera pitch: the full tilt on real hardware, flat on the emulator (GL-crash guard). */
     private fun navTiltDeg(): Double = if (isEmulator()) 0.0 else NAV_TILT
@@ -2738,14 +2729,6 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
-    /** How old a fix is (ms), preferring the monotonic elapsed-realtime clock; falls back to the wall
-     *  clock, and to "fresh" (0) when a fix carries no timestamp at all. */
-    private fun fixAgeMs(loc: Location, nowElapsedMs: Long): Long {
-        val ern = loc.elapsedRealtimeNanos
-        if (ern > 0L) return nowElapsedMs - ern / 1_000_000L
-        if (loc.time > 0L) return System.currentTimeMillis() - loc.time
-        return 0L
-    }
 
     /** Ensure location (and notification) permission, then start + bind the always-on [WatchService]
      *  that owns GPS, spike filtering, the anchor watch and track recording. The Activity only
