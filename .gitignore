@@ -28,3 +28,10 @@ __pycache__/
 /*.png
 /state*.md
 /ui.xml
+
+# Local infrastructure — internal hosts/shares/credential locations; never publish.
+# These live on disk (+ backup in ..\MyNavvy-infra-local) but stay out of git.
+/REMOTE-BUILD-AND-LOGS.md
+/TABLET-SETUP.md
+/publish-mynavvy.ps1
+/publish-mynavvy-data.ps1
