@@ -17,3 +17,14 @@ charts-pipeline/out/
 
 # Build / run logs
 *.log
+build_log.txt
+
+# Python screen-design mockups — reference material, deliberately untracked
+simrad-mockup/
+simrad-nav-mockup/
+__pycache__/
+
+# Root-level debug screenshots / session notes / UI dumps (app res + icon PNGs stay tracked)
+/*.png
+/state*.md
+/ui.xml
