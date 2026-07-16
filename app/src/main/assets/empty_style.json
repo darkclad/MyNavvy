@@ -1,0 +1,12 @@
+{
+  "version": 8,
+  "name": "MyNavvy offline fallback",
+  "sources": {},
+  "layers": [
+    {
+      "id": "ocean",
+      "type": "background",
+      "paint": { "background-color": "#1b5e91" }
+    }
+  ]
+}

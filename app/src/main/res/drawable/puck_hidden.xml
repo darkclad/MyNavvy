@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fully transparent drawable used to blank MapLibre's built-in location puck. The puck's bitmap
+     images don't render reliably against this style, so the boat is drawn by BoatMarker instead; the
+     LocationComponent stays active (it still drives camera boat-follow) but shows nothing. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#00000000" />
+    <size android:width="1dp" android:height="1dp" />
+</shape>

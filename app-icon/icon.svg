@@ -1,0 +1,14 @@
+<svg viewBox="0 0 108 108" xmlns="http://www.w3.org/2000/svg">
+  <rect width="108" height="108" rx="20" fill="#0F1418"/>
+  <!-- faint chart-contour texture -->
+  <path d="M6,40 Q54,27 102,40" fill="none" stroke="#6fc6e8" stroke-opacity="0.16" stroke-width="2.5"/>
+  <path d="M6,52 Q54,39 102,52" fill="none" stroke="#6fc6e8" stroke-opacity="0.10" stroke-width="2.5"/>
+  <!-- depth contours under the boat -->
+  <path d="M28,74 Q54,66 80,74" fill="none" stroke="#6fc6e8" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M34,81 Q54,75 74,81" fill="none" stroke="#6fc6e8" stroke-width="2.6" stroke-linecap="round"/>
+  <!-- sailboat -->
+  <rect x="53.2" y="22" width="1.6" height="34" fill="#ffffff"/>
+  <path d="M53,24 L53,55 L33,55 Z" fill="#ffffff"/>
+  <path d="M55,28 L55,55 L69,55 Z" fill="#ffffff"/>
+  <path d="M30,57 L78,57 L70.5,67 C64,70.5 44,70.5 37.5,67 Z" fill="#ffffff"/>
+</svg>

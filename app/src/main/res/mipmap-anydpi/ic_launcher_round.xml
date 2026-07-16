@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Round variant for pre-API-26 launchers that request a round icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path android:pathData="M54,0 A54,54 0 1,0 54,108 A54,54 0 1,0 54,0 Z"
+        android:fillColor="#0F1418" />
+
+    <path android:pathData="M14,42 Q54,30 94,42" android:strokeColor="#6fc6e8" android:strokeAlpha="0.16" android:strokeWidth="2.5" />
+    <path android:pathData="M12,52 Q54,41 96,52" android:strokeColor="#6fc6e8" android:strokeAlpha="0.10" android:strokeWidth="2.5" />
+
+    <path android:pathData="M28,74 Q54,66 80,74" android:strokeColor="#6fc6e8" android:strokeWidth="2.6" android:strokeLineCap="round" />
+    <path android:pathData="M34,81 Q54,75 74,81" android:strokeColor="#6fc6e8" android:strokeWidth="2.6" android:strokeLineCap="round" />
+
+    <path android:pathData="M53.2,22 h1.6 v34 h-1.6 z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M53,24 L53,55 L33,55 Z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M55,28 L55,55 L69,55 Z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M30,57 L78,57 L70.5,67 C64,70.5 44,70.5 37.5,67 Z" android:fillColor="#FFFFFF" />
+</vector>

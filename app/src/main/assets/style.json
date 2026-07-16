@@ -1,0 +1,2346 @@
+{
+  "version": 8,
+  "name": "MyNavvy NOAA (band-aware)",
+  "glyphs": "asset://glyphs/{fontstack}/{range}.pbf",
+  "sources": {
+    "charts": {
+      "type": "vector",
+      "tiles": [
+        "http://127.0.0.1:8123/tiles/{z}/{x}/{y}.pbf"
+      ],
+      "minzoom": 2,
+      "maxzoom": 16
+    },
+    "basemap": {
+      "type": "vector",
+      "tiles": [
+        "http://127.0.0.1:8124/tiles/{z}/{x}/{y}.pbf"
+      ],
+      "minzoom": 0,
+      "maxzoom": 14
+    }
+  },
+  "layers": [
+    {
+      "id": "background-land",
+      "type": "background",
+      "paint": {
+        "background-color": "#f2e39c"
+      }
+    },
+    {
+      "id": "bm-ocean",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "water",
+      "filter": [
+        "==",
+        [
+          "get",
+          "class"
+        ],
+        "ocean"
+      ],
+      "paint": {
+        "fill-color": "#1b5e91"
+      }
+    },
+    {
+      "id": "DEPARE-b1",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DEPARE",
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "DRGARE-b1",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DRGARE",
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "LNDARE-b1",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "LNDARE",
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ],
+      "paint": {
+        "fill-color": "#f2e39c",
+        "fill-outline-color": "#c9b063"
+      }
+    },
+    {
+      "id": "DEPARE-b2",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DEPARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "DRGARE-b2",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DRGARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "LNDARE-b2",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "LNDARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ],
+      "paint": {
+        "fill-color": "#f2e39c",
+        "fill-outline-color": "#c9b063"
+      }
+    },
+    {
+      "id": "DEPARE-b3",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DEPARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "DRGARE-b3",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DRGARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "LNDARE-b3",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "LNDARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ],
+      "paint": {
+        "fill-color": "#f2e39c",
+        "fill-outline-color": "#c9b063"
+      }
+    },
+    {
+      "id": "DEPARE-b4",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DEPARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "DRGARE-b4",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DRGARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "LNDARE-b4",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "LNDARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ],
+      "paint": {
+        "fill-color": "#f2e39c",
+        "fill-outline-color": "#c9b063"
+      }
+    },
+    {
+      "id": "DEPARE-b5",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DEPARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "DRGARE-b5",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DRGARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "LNDARE-b5",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "LNDARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ],
+      "paint": {
+        "fill-color": "#f2e39c",
+        "fill-outline-color": "#c9b063"
+      }
+    },
+    {
+      "id": "DEPARE-b6",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DEPARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "DRGARE-b6",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "DRGARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ],
+      "paint": {
+        "fill-color": [
+          "step",
+          [
+            "to-number",
+            [
+              "get",
+              "DRVAL1"
+            ],
+            -999
+          ],
+          "#1b5e91",
+          -100,
+          "#7cc47f",
+          0,
+          "#cfe6f5",
+          2.0,
+          "#8fc0e2",
+          4.0,
+          "#4a90c2",
+          8.0,
+          "#1b5e91"
+        ]
+      }
+    },
+    {
+      "id": "LNDARE-b6",
+      "type": "fill",
+      "source": "charts",
+      "source-layer": "LNDARE",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ],
+      "paint": {
+        "fill-color": "#f2e39c",
+        "fill-outline-color": "#c9b063"
+      }
+    },
+    {
+      "id": "bm-landcover",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "landcover",
+      "paint": {
+        "fill-color": [
+          "match",
+          [
+            "get",
+            "class"
+          ],
+          "wood",
+          "#cfdcac",
+          "grass",
+          "#dbe4bd",
+          "scrub",
+          "#d6ddb2",
+          "wetland",
+          "#cdddc4",
+          "#dbe4bd"
+        ],
+        "fill-opacity": 0.45
+      }
+    },
+    {
+      "id": "bm-park",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "park",
+      "paint": {
+        "fill-color": "#d3e6c4",
+        "fill-opacity": 0.4
+      }
+    },
+    {
+      "id": "bm-water",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "water",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "class"
+        ],
+        "ocean"
+      ],
+      "paint": {
+        "fill-color": "#9cc6e4"
+      }
+    },
+    {
+      "id": "bm-waterway",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "waterway",
+      "paint": {
+        "line-color": "#9cc6e4",
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          9,
+          0.5,
+          14,
+          1.4
+        ]
+      }
+    },
+    {
+      "id": "bm-building",
+      "type": "fill",
+      "source": "basemap",
+      "source-layer": "building",
+      "minzoom": 15,
+      "paint": {
+        "fill-color": "#e6d491",
+        "fill-outline-color": "#cdb264",
+        "fill-opacity": 0.55
+      }
+    },
+    {
+      "id": "bm-road-casing",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "transportation",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "class"
+        ],
+        "ferry"
+      ],
+      "minzoom": 11,
+      "layout": {
+        "line-join": "round",
+        "line-cap": "round"
+      },
+      "paint": {
+        "line-color": "#c9b98c",
+        "line-opacity": 0.9,
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          7,
+          [
+            "match",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "motorway",
+              "trunk"
+            ],
+            1.0,
+            0.15
+          ],
+          12,
+          [
+            "match",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "motorway",
+              "trunk"
+            ],
+            3.0,
+            [
+              "primary",
+              "secondary"
+            ],
+            2.1,
+            [
+              "tertiary",
+              "minor"
+            ],
+            1.3,
+            0.7
+          ],
+          16,
+          [
+            "match",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "motorway",
+              "trunk"
+            ],
+            7.5,
+            [
+              "primary",
+              "secondary"
+            ],
+            5.5,
+            [
+              "tertiary",
+              "minor"
+            ],
+            3.8,
+            2.4
+          ]
+        ]
+      }
+    },
+    {
+      "id": "bm-road",
+      "type": "line",
+      "source": "basemap",
+      "source-layer": "transportation",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "class"
+        ],
+        "ferry"
+      ],
+      "minzoom": 11,
+      "layout": {
+        "line-join": "round",
+        "line-cap": "round"
+      },
+      "paint": {
+        "line-color": [
+          "match",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "motorway",
+            "trunk"
+          ],
+          "#f7dca2",
+          [
+            "primary",
+            "secondary"
+          ],
+          "#fdfaf0",
+          "#fefdf8"
+        ],
+        "line-width": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          7,
+          [
+            "match",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "motorway",
+              "trunk"
+            ],
+            0.6,
+            0.05
+          ],
+          12,
+          [
+            "match",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "motorway",
+              "trunk"
+            ],
+            2.0,
+            [
+              "primary",
+              "secondary"
+            ],
+            1.4,
+            [
+              "tertiary",
+              "minor"
+            ],
+            0.8,
+            0.4
+          ],
+          16,
+          [
+            "match",
+            [
+              "get",
+              "class"
+            ],
+            [
+              "motorway",
+              "trunk"
+            ],
+            5.5,
+            [
+              "primary",
+              "secondary"
+            ],
+            4.0,
+            [
+              "tertiary",
+              "minor"
+            ],
+            2.6,
+            1.6
+          ]
+        ]
+      }
+    },
+    {
+      "id": "DEPCNT-b1",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 0.9,
+        "line-opacity": 0.7
+      },
+      "minzoom": 2,
+      "maxzoom": 6,
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ]
+    },
+    {
+      "id": "COALNE-b1",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "COALNE",
+      "paint": {
+        "line-color": "#6b5a28",
+        "line-width": 1.2
+      },
+      "minzoom": 2,
+      "maxzoom": 6,
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ]
+    },
+    {
+      "id": "DEPCNT-b2",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 0.9,
+        "line-opacity": 0.7
+      },
+      "minzoom": 2,
+      "maxzoom": 8,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ]
+    },
+    {
+      "id": "COALNE-b2",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "COALNE",
+      "paint": {
+        "line-color": "#6b5a28",
+        "line-width": 1.2
+      },
+      "minzoom": 2,
+      "maxzoom": 8,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ]
+    },
+    {
+      "id": "DEPCNT-b3",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 0.9,
+        "line-opacity": 0.7
+      },
+      "minzoom": 6,
+      "maxzoom": 11,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ]
+    },
+    {
+      "id": "COALNE-b3",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "COALNE",
+      "paint": {
+        "line-color": "#6b5a28",
+        "line-width": 1.2
+      },
+      "minzoom": 6,
+      "maxzoom": 11,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ]
+    },
+    {
+      "id": "DEPCNT-b4",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 0.9,
+        "line-opacity": 0.7
+      },
+      "minzoom": 9,
+      "maxzoom": 13,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ]
+    },
+    {
+      "id": "COALNE-b4",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "COALNE",
+      "paint": {
+        "line-color": "#6b5a28",
+        "line-width": 1.2
+      },
+      "minzoom": 9,
+      "maxzoom": 13,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ]
+    },
+    {
+      "id": "DEPCNT-b5",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 0.9,
+        "line-opacity": 0.7
+      },
+      "minzoom": 11,
+      "maxzoom": 22,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ]
+    },
+    {
+      "id": "COALNE-b5",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "COALNE",
+      "paint": {
+        "line-color": "#6b5a28",
+        "line-width": 1.2
+      },
+      "minzoom": 11,
+      "maxzoom": 22,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ]
+    },
+    {
+      "id": "DEPCNT-b6",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": 0.9,
+        "line-opacity": 0.7
+      },
+      "minzoom": 13,
+      "maxzoom": 22,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ]
+    },
+    {
+      "id": "COALNE-b6",
+      "type": "line",
+      "source": "charts",
+      "source-layer": "COALNE",
+      "paint": {
+        "line-color": "#6b5a28",
+        "line-width": 1.2
+      },
+      "minzoom": 13,
+      "maxzoom": 22,
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ]
+    },
+    {
+      "id": "SOUNDG-lbl-b1",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "SOUNDG",
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ],
+      "minzoom": 12,
+      "maxzoom": 6,
+      "layout": {
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "DEPTH"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 11,
+        "text-allow-overlap": false,
+        "text-optional": true,
+        "text-padding": 2
+      },
+      "paint": {
+        "text-color": "#0d2230",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "SOUNDG-lbl-b2",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "SOUNDG",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ],
+      "minzoom": 12,
+      "maxzoom": 8,
+      "layout": {
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "DEPTH"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 11,
+        "text-allow-overlap": false,
+        "text-optional": true,
+        "text-padding": 2
+      },
+      "paint": {
+        "text-color": "#0d2230",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "SOUNDG-lbl-b3",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "SOUNDG",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ],
+      "minzoom": 12,
+      "maxzoom": 11,
+      "layout": {
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "DEPTH"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 11,
+        "text-allow-overlap": false,
+        "text-optional": true,
+        "text-padding": 2
+      },
+      "paint": {
+        "text-color": "#0d2230",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "SOUNDG-lbl-b4",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "SOUNDG",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ],
+      "minzoom": 12,
+      "maxzoom": 13,
+      "layout": {
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "DEPTH"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 11,
+        "text-allow-overlap": false,
+        "text-optional": true,
+        "text-padding": 2
+      },
+      "paint": {
+        "text-color": "#0d2230",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "SOUNDG-lbl-b5",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "SOUNDG",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ],
+      "minzoom": 12,
+      "maxzoom": 22,
+      "layout": {
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "DEPTH"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 11,
+        "text-allow-overlap": false,
+        "text-optional": true,
+        "text-padding": 2
+      },
+      "paint": {
+        "text-color": "#0d2230",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "SOUNDG-lbl-b6",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "SOUNDG",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ],
+      "minzoom": 13,
+      "maxzoom": 22,
+      "layout": {
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "DEPTH"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 11,
+        "text-allow-overlap": false,
+        "text-optional": true,
+        "text-padding": 2
+      },
+      "paint": {
+        "text-color": "#0d2230",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "navaids",
+      "type": "circle",
+      "source": "charts",
+      "source-layer": "LIGHTS",
+      "paint": {
+        "circle-radius": 3.5,
+        "circle-color": "#d21f1f",
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff"
+      }
+    },
+    {
+      "id": "buoys-lateral",
+      "type": "circle",
+      "source": "charts",
+      "source-layer": "BOYLAT",
+      "paint": {
+        "circle-radius": 3,
+        "circle-color": "#1f7a1f",
+        "circle-stroke-width": 1,
+        "circle-stroke-color": "#ffffff"
+      }
+    },
+    {
+      "id": "bm-water-label",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "water_name",
+      "minzoom": 10,
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:latin"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          10,
+          11,
+          15,
+          15
+        ],
+        "text-max-width": 8,
+        "text-letter-spacing": 0.1,
+        "text-optional": true,
+        "symbol-placement": "point"
+      },
+      "paint": {
+        "text-color": "#2f6d95",
+        "text-halo-color": "#eaf3fb",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "bm-road-label",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "transportation_name",
+      "minzoom": 13,
+      "filter": [
+        "match",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "motorway",
+          "trunk",
+          "primary",
+          "secondary"
+        ],
+        true,
+        false
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:latin"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          13,
+          10,
+          16,
+          12.5
+        ],
+        "symbol-placement": "line",
+        "text-max-angle": 30,
+        "text-padding": 2,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#6f6446",
+        "text-halo-color": "#fdfaf0",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "bm-marina",
+      "type": "circle",
+      "source": "basemap",
+      "source-layer": "poi",
+      "minzoom": 12,
+      "filter": [
+        "==",
+        [
+          "get",
+          "class"
+        ],
+        "harbor"
+      ],
+      "paint": {
+        "circle-radius": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          12,
+          3.5,
+          16,
+          7
+        ],
+        "circle-color": "#5a3fa0",
+        "circle-opacity": 0.9,
+        "circle-stroke-width": 1.8,
+        "circle-stroke-color": "#ffffff"
+      }
+    },
+    {
+      "id": "bm-marina-label",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "poi",
+      "minzoom": 13,
+      "filter": [
+        "==",
+        [
+          "get",
+          "class"
+        ],
+        "harbor"
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:latin"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          13,
+          10,
+          16,
+          12.5
+        ],
+        "text-anchor": "top",
+        "text-offset": [
+          0,
+          0.7
+        ],
+        "text-max-width": 7,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#4a3a72",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "bm-place-minor",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "place",
+      "minzoom": 11,
+      "filter": [
+        "match",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "village",
+          "hamlet",
+          "suburb",
+          "neighbourhood",
+          "quarter"
+        ],
+        true,
+        false
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:latin"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          10.5,
+          16,
+          14
+        ],
+        "text-max-width": 8,
+        "text-padding": 3,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#55503f",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.3
+      }
+    },
+    {
+      "id": "bm-place-major",
+      "type": "symbol",
+      "source": "basemap",
+      "source-layer": "place",
+      "filter": [
+        "match",
+        [
+          "get",
+          "class"
+        ],
+        [
+          "city",
+          "town"
+        ],
+        true,
+        false
+      ],
+      "layout": {
+        "text-field": [
+          "coalesce",
+          [
+            "get",
+            "name:latin"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Bold"
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          6,
+          11,
+          10,
+          14,
+          14,
+          19
+        ],
+        "text-max-width": 8,
+        "text-padding": 4
+      },
+      "paint": {
+        "text-color": "#33322c",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.6
+      }
+    },
+    {
+      "id": "DEPCNT-lbl-b1",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "filter": [
+        "any",
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          1
+        ],
+        [
+          "==",
+          [
+            "to-number",
+            [
+              "get",
+              "INTU"
+            ],
+            0
+          ],
+          0
+        ]
+      ],
+      "minzoom": 8,
+      "maxzoom": 6,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "VALDCO"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 10,
+        "symbol-spacing": 320,
+        "text-max-angle": 35,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#2a6ea0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "DEPCNT-lbl-b2",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        2
+      ],
+      "minzoom": 8,
+      "maxzoom": 8,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "VALDCO"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 10,
+        "symbol-spacing": 320,
+        "text-max-angle": 35,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#2a6ea0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "DEPCNT-lbl-b3",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        3
+      ],
+      "minzoom": 8,
+      "maxzoom": 11,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "VALDCO"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 10,
+        "symbol-spacing": 320,
+        "text-max-angle": 35,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#2a6ea0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "DEPCNT-lbl-b4",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        4
+      ],
+      "minzoom": 9,
+      "maxzoom": 13,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "VALDCO"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 10,
+        "symbol-spacing": 320,
+        "text-max-angle": 35,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#2a6ea0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "DEPCNT-lbl-b5",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        5
+      ],
+      "minzoom": 11,
+      "maxzoom": 22,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "VALDCO"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 10,
+        "symbol-spacing": 320,
+        "text-max-angle": 35,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#2a6ea0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    },
+    {
+      "id": "DEPCNT-lbl-b6",
+      "type": "symbol",
+      "source": "charts",
+      "source-layer": "DEPCNT",
+      "filter": [
+        "==",
+        [
+          "to-number",
+          [
+            "get",
+            "INTU"
+          ],
+          0
+        ],
+        6
+      ],
+      "minzoom": 13,
+      "maxzoom": 22,
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": [
+          "to-string",
+          [
+            "round",
+            [
+              "*",
+              [
+                "to-number",
+                [
+                  "get",
+                  "VALDCO"
+                ],
+                0
+              ],
+              3.28084
+            ]
+          ]
+        ],
+        "text-font": [
+          "NotoSans-Regular"
+        ],
+        "text-size": 10,
+        "symbol-spacing": 320,
+        "text-max-angle": 35,
+        "text-allow-overlap": false,
+        "text-optional": true
+      },
+      "paint": {
+        "text-color": "#2a6ea0",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.4
+      }
+    }
+  ]
+}

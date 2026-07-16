@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Wind streaks, each curling back into the breeze -->
+    <path android:pathData="M3,8 H13 a2.3,2.3 0 1 0 -2.3,-2.3"
+        android:strokeColor="#7FB5C9" android:strokeWidth="1.8"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M3,12 H17 a2.5,2.5 0 1 1 -2.5,2.5"
+        android:strokeColor="#7FB5C9" android:strokeWidth="1.8"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M3,16 H10 a1.9,1.9 0 1 0 -1.9,1.9"
+        android:strokeColor="#7FB5C9" android:strokeWidth="1.8"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

@@ -1,0 +1,438 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+  <!-- Content: the persistent chart + any overlaid screen. -->
+  <FrameLayout
+      android:id="@+id/contentArea"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent">
+
+    <org.maplibre.android.maps.MapView
+        android:id="@+id/mapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Second map, used ONLY for the Chart+Nav split (course-up Nav pane). Sized to that pane in
+         code and shown only for that combo; otherwise GONE (its surface is released, so it's cheap).
+         Sits above the primary map but below the nav HUD so the HUD draws over it. -->
+    <org.maplibre.android.maps.MapView
+        android:id="@+id/mapView2"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- Simrad navigation HUD: transparent Compose+Canvas overlay (corner panels + data-bar +
+         heading tape) drawn over the tilted, course-up chart in nav mode. Non-focusable so map
+         gestures pass through to the MapView. Content set in MainActivity; toggled in enterNavMode. -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/navHud"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:elevation="12dp"
+        android:focusable="false"
+        android:visibility="gone" />
+
+    <!-- Depth-on-tap info card. Top-left, aligned with the MENU button's top and sitting just to its
+         right; one value per line; content set in MainActivity.showDepthOverlay(). -->
+    <TextView
+        android:id="@+id/infoCard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="96dp"
+        android:padding="10dp"
+        android:background="#E6101418"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:fontFamily="monospace"
+        android:lineSpacingExtra="2dp"
+        android:clickable="true"
+        android:visibility="gone"
+        android:text="" />
+
+    <!-- Drag-alarm banner. Shown red across the top while the boat is outside the swing circle
+         (or grounding). High elevation so it sits above the HUD sidebar. -->
+    <TextView
+        android:id="@+id/tvAnchorBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginTop="52dp"
+        android:elevation="22dp"
+        android:padding="10dp"
+        android:gravity="center"
+        android:background="#F0D50000"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:textSize="16sp"
+        android:fontFamily="monospace"
+        android:visibility="gone"
+        android:text="⚠ DRAGGING" />
+
+    <!-- Right data sidebar. In landscape MainActivity.applyOrientationChrome() stretches this
+         ScrollView to full height so the tiles scroll instead of clipping off the short screen. -->
+    <ScrollView
+        android:id="@+id/hudScroll"
+        android:layout_width="116dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:background="#D9101418"
+        android:scrollbars="none">
+
+    <!-- Long-press sends a diagnostics snapshot (listener binds to @id/hud). -->
+    <LinearLayout
+        android:id="@+id/hud"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="6dp">
+
+        <TextView style="@style/HudLabel" android:text="DEPTH" />
+        <TextView android:id="@+id/tvDepth" style="@style/HudValue" android:text="--" />
+        <TextView android:id="@+id/tvDepthSrc" style="@style/HudUnit" android:text="chart" />
+        <TextView android:id="@+id/tvUkc" style="@style/HudSmall" android:text="UKC --" />
+
+        <TextView style="@style/HudLabel" android:text="SOG" />
+        <TextView android:id="@+id/tvSog" style="@style/HudValue" android:text="--" />
+        <TextView style="@style/HudUnit" android:text="kn" />
+
+        <TextView style="@style/HudLabel" android:text="COG" />
+        <TextView android:id="@+id/tvCog" style="@style/HudValue" android:text="--" />
+
+        <TextView style="@style/HudLabel" android:text="POSITION" />
+        <TextView android:id="@+id/tvLat" style="@style/HudSmall" android:text="--" />
+        <TextView android:id="@+id/tvLon" style="@style/HudSmall" android:text="--" />
+
+        <TextView style="@style/HudLabel" android:text="WIND" />
+        <TextView android:id="@+id/tvWnd" style="@style/HudSmall" android:text="--" />
+        <TextView android:id="@+id/tvWndSrc" style="@style/HudUnit" android:text="forecast" />
+
+        <TextView style="@style/HudLabel" android:text="TEMP" />
+        <TextView android:id="@+id/tvTempAir" style="@style/HudSmall" android:text="Air --" />
+        <TextView android:id="@+id/tvTempSea" style="@style/HudSmall" android:text="Sea --" />
+
+        <TextView style="@style/HudLabel" android:text="TIME" />
+        <TextView android:id="@+id/tvTime" style="@style/HudSmall" android:text="--" />
+
+        <TextView style="@style/HudLabel" android:text="TIDE" />
+        <TextView android:id="@+id/tvTide" style="@style/HudValue" android:text="--" />
+        <TextView android:id="@+id/tvTideSrc" style="@style/HudUnit" android:text="ft MLLW" />
+        <com.dvladi.mynavvy.TideGraphView
+            android:id="@+id/tideMini"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginTop="4dp" />
+    </LinearLayout>
+    </ScrollView>
+
+    <!-- Zoom controls, above the bottom strip. -->
+    <LinearLayout
+        android:id="@+id/zoomControls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="120dp"
+        android:orientation="vertical">
+        <Button android:id="@+id/btnCenterBoat" android:layout_width="52dp" android:layout_height="52dp"
+            android:layout_marginBottom="6dp" android:minWidth="0dp" android:minHeight="0dp"
+            android:textSize="24sp" android:text="◎"
+            android:contentDescription="Center on boat" />
+        <Button android:id="@+id/btnZoomIn" android:layout_width="52dp" android:layout_height="52dp"
+            android:minWidth="0dp" android:minHeight="0dp" android:textSize="22sp" android:text="+" />
+        <Button android:id="@+id/btnZoomOut" android:layout_width="52dp" android:layout_height="52dp"
+            android:layout_marginTop="6dp" android:minWidth="0dp" android:minHeight="0dp"
+            android:textSize="22sp" android:text="–" />
+    </LinearLayout>
+
+    <!-- Left icon toolbar — shown on a chart tap, auto-hides after a few seconds. -->
+    <LinearLayout
+        android:id="@+id/leftToolbar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|top"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="60dp"
+        android:orientation="vertical"
+        android:background="#E6101418"
+        android:padding="4dp"
+        android:elevation="14dp"
+        android:visibility="gone">
+        <Button android:id="@+id/btnUndo" style="@style/ToolIcon" android:text="↶" />
+        <Button android:id="@+id/btnClear" style="@style/ToolIcon" android:text="✕" />
+        <Button android:id="@+id/btnRoute" style="@style/ToolIcon" android:text="⟿" />
+        <Button android:id="@+id/btnRec" style="@style/ToolIcon" android:text="●" />
+        <Button android:id="@+id/btnWx" style="@style/ToolIcon" android:text="☁" />
+        <Button android:id="@+id/btnDepth" style="@style/ToolIcon" android:text="≋" />
+        <Button android:id="@+id/btnMark" style="@style/ToolIcon" android:text="⚑" />
+        <Button android:id="@+id/btnAnchor" style="@style/ToolIcon" android:text="⚓" />
+    </LinearLayout>
+
+    <!-- On-map scale bar, bottom-left. Part of the auto-hiding chart UI. -->
+    <com.dvladi.mynavvy.ScaleBarView
+        android:id="@+id/scaleBar"
+        android:layout_width="240dp"
+        android:layout_height="26dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="10dp"
+        android:elevation="10dp"
+        android:visibility="gone" />
+
+    <!-- Scale bar for the SECOND map (Chart+Nav split's Nav pane). Positioned in code. -->
+    <com.dvladi.mynavvy.ScaleBarView
+        android:id="@+id/scaleBar2"
+        android:layout_width="240dp"
+        android:layout_height="26dp"
+        android:layout_gravity="bottom|start"
+        android:layout_marginStart="8dp"
+        android:layout_marginBottom="10dp"
+        android:elevation="12dp"
+        android:visibility="gone" />
+
+    <!-- Map data / renderer credits (OSM ODbL, OpenMapTiles CC-BY, MapLibre BSD) live on the About
+         screen now — reachable in two taps via ☰ → About, which satisfies OSM's attribution guidance
+         for a full-screen mobile map while keeping the chart itself uncluttered. -->
+
+    <!-- Weather panel (wind readout + tide graph + forecast slider), bottom. Toggled by the Wx icon;
+         stays until toggled off (not part of the auto-hide group). -->
+    <LinearLayout
+        android:id="@+id/weatherPanel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#E6101418"
+        android:padding="6dp"
+        android:elevation="12dp"
+        android:visibility="gone">
+
+        <TextView android:id="@+id/tvWx" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:paddingHorizontal="4dp" android:textColor="#8fd3ff" android:textSize="13sp"
+            android:fontFamily="monospace" android:text="Wx: fetching…" />
+
+        <com.dvladi.mynavvy.TideGraphView android:id="@+id/tideGraph"
+            android:layout_width="match_parent" android:layout_height="96dp" />
+
+        <SeekBar android:id="@+id/seekTime"
+            android:layout_width="match_parent" android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <!-- (The old anchor-watch control panel was replaced by a dialog off the chart toolbar's ⚓
+         button — see MainActivity.showAnchorDialog(). The swing-circle map layers + drag-alarm
+         banner (@id/tvAnchorBanner) remain.) -->
+
+    <!-- (The old XML navTopBar / navBottomBar + HeadingTapeView were replaced by the Simrad
+         @id/navHud Compose overlay above.) -->
+
+    <!-- Overlay host for the non-chart screens (Weather / Route / Anchor). -->
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/screenHost"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#0b0f13"
+        android:elevation="16dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+  </FrameLayout>
+
+  <!-- Top-left menu — floats above the chart AND any screen so it is always reachable. -->
+  <ImageButton
+      android:id="@+id/btnMenu"
+      android:layout_width="48dp"
+      android:layout_height="44dp"
+      android:layout_gravity="top|start"
+      android:layout_margin="8dp"
+      android:elevation="20dp"
+      android:scaleType="center"
+      android:background="@drawable/bg_menu_btn"
+      android:src="@drawable/ic_menu_hamburger"
+      android:contentDescription="Menu" />
+
+  <!-- Icon tile grid (Simrad-style). Tile ids match the old buttons so wiring is unchanged.
+       Wrapped in a ScrollView so the taller menu (split-view presets added) still scrolls on a
+       short landscape screen instead of clipping its lower rows. -->
+  <ScrollView
+      android:id="@+id/menuPanel"
+      android:layout_width="wrap_content"
+      android:layout_height="match_parent"
+      android:layout_gravity="top|start"
+      android:layout_marginStart="8dp"
+      android:layout_marginTop="56dp"
+      android:layout_marginBottom="8dp"
+      android:elevation="20dp"
+      android:scrollbars="none"
+      android:visibility="gone">
+
+  <LinearLayout
+      android:id="@+id/menuContent"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:background="#F0101418"
+      android:padding="8dp">
+
+      <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:orientation="horizontal">
+          <LinearLayout android:id="@+id/menuChart" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_chart" />
+              <TextView style="@style/MenuTileLabel" android:text="Chart" />
+          </LinearLayout>
+          <LinearLayout android:id="@+id/menuNav" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_nav" />
+              <TextView style="@style/MenuTileLabel" android:text="Navigation" />
+          </LinearLayout>
+      </LinearLayout>
+
+      <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:orientation="horizontal">
+          <LinearLayout android:id="@+id/menuHelm" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_helm" />
+              <TextView style="@style/MenuTileLabel" android:text="Helm" />
+          </LinearLayout>
+          <LinearLayout android:id="@+id/menuWeather" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_weather" />
+              <TextView style="@style/MenuTileLabel" android:text="Weather" />
+          </LinearLayout>
+      </LinearLayout>
+
+      <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:orientation="horizontal">
+          <LinearLayout android:id="@+id/menuRoute" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_route" />
+              <TextView style="@style/MenuTileLabel" android:text="Route" />
+          </LinearLayout>
+          <LinearLayout android:id="@+id/menuTrip" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_trip" />
+              <TextView style="@style/MenuTileLabel" android:text="Trip" />
+          </LinearLayout>
+      </LinearLayout>
+
+      <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:orientation="horizontal">
+          <LinearLayout android:id="@+id/menuWind" style="@style/MenuTile">
+              <ImageView style="@style/MenuTileIcon" android:src="@drawable/ic_menu_wind" />
+              <TextView style="@style/MenuTileLabel" android:text="Wind" />
+          </LinearLayout>
+      </LinearLayout>
+
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:layout_marginVertical="6dp" android:background="#33ffffff" />
+
+      <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_marginStart="8dp" android:layout_marginBottom="2dp"
+          android:textColor="#8FA6B4" android:textSize="11sp"
+          android:letterSpacing="0.1" android:text="SPLIT VIEW" />
+
+      <!-- Split-view combo rows are built in code (MainActivity.buildSplitMenu) from a screen
+           registry, each with a joined twin-icon of the two screens. -->
+      <LinearLayout android:id="@+id/splitSection" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:orientation="vertical" />
+
+      <View android:layout_width="match_parent" android:layout_height="1dp"
+          android:layout_marginVertical="6dp" android:background="#33ffffff" />
+
+      <LinearLayout android:id="@+id/menuConfig" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:layout_margin="4dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingHorizontal="12dp" android:paddingVertical="10dp"
+          android:background="@drawable/bg_menu_tile"
+          android:clickable="true" android:focusable="true">
+          <ImageView android:layout_width="26dp" android:layout_height="26dp"
+              android:src="@drawable/ic_menu_config" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginStart="12dp" android:textColor="#C7D2DC"
+              android:textSize="13sp" android:text="Configuration" />
+      </LinearLayout>
+
+      <LinearLayout android:id="@+id/menuAbout" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:layout_margin="4dp"
+          android:orientation="horizontal" android:gravity="center_vertical"
+          android:paddingHorizontal="12dp" android:paddingVertical="10dp"
+          android:background="@drawable/bg_menu_tile"
+          android:clickable="true" android:focusable="true">
+          <TextView android:layout_width="26dp" android:layout_height="26dp"
+              android:gravity="center" android:text="ⓘ" android:textSize="18sp"
+              android:textColor="#C7D2DC" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+              android:layout_marginStart="12dp" android:textColor="#C7D2DC"
+              android:textSize="13sp" android:text="About &amp; credits" />
+      </LinearLayout>
+  </LinearLayout>
+  </ScrollView>
+
+  <!-- Optional chart-update prompt: a dismissible top banner, NOT the full-screen dataOverlay, so an
+       update offered on an online launch never covers the chart or steals taps. Start-margin keeps it
+       clear of the top-left MENU button. Only shown for updates on an already-usable install; a
+       first-run (no charts) still blocks on dataOverlay below. -->
+  <LinearLayout
+      android:id="@+id/updateBanner"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:layout_gravity="top"
+      android:layout_marginStart="84dp"
+      android:layout_marginTop="6dp"
+      android:layout_marginEnd="6dp"
+      android:orientation="horizontal"
+      android:gravity="center_vertical"
+      android:paddingHorizontal="12dp"
+      android:paddingVertical="6dp"
+      android:background="#F21B2A38"
+      android:elevation="20dp"
+      android:clickable="true"
+      android:focusable="true"
+      android:visibility="gone">
+
+      <TextView android:id="@+id/tvUpdateBanner"
+          android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+          android:textColor="#FFFFFF" android:textSize="13sp" android:fontFamily="monospace"
+          android:text="Updated charts available" />
+
+      <Button android:id="@+id/btnUpdateNow" style="?android:attr/buttonBarButtonStyle"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:minWidth="0dp" android:textColor="#7CFF9E" android:textSize="13sp"
+          android:text="Download" />
+
+      <Button android:id="@+id/btnUpdateDismiss" style="?android:attr/buttonBarButtonStyle"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:minWidth="0dp" android:paddingHorizontal="10dp"
+          android:textColor="#9fb3c0" android:textSize="15sp"
+          android:text="✕" />
+  </LinearLayout>
+
+  <!-- First-run data download overlay — above everything. -->
+  <LinearLayout
+      android:id="@+id/dataOverlay"
+      android:layout_width="match_parent"
+      android:layout_height="match_parent"
+      android:orientation="vertical"
+      android:gravity="center"
+      android:padding="28dp"
+      android:elevation="24dp"
+      android:background="#F0101418"
+      android:clickable="true"
+      android:focusable="true"
+      android:visibility="gone">
+
+      <TextView android:id="@+id/tvDataStatus" android:layout_width="match_parent"
+          android:layout_height="wrap_content" android:gravity="center" android:textColor="#FFFFFF"
+          android:textSize="15sp" android:text="Checking for chart data…" />
+
+      <ProgressBar android:id="@+id/progressData" style="?android:attr/progressBarStyleHorizontal"
+          android:layout_width="match_parent" android:layout_height="wrap_content"
+          android:layout_marginTop="16dp" android:max="100" android:visibility="invisible" />
+
+      <Button android:id="@+id/btnDataAction" android:layout_width="wrap_content"
+          android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="Download" />
+
+      <Button android:id="@+id/btnDataSkip" style="?android:attr/buttonBarButtonStyle"
+          android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_marginTop="4dp" android:textSize="13sp" android:text="Not now" />
+  </LinearLayout>
+
+</FrameLayout>

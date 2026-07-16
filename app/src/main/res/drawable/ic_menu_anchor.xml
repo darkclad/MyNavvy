@@ -1,0 +1,8 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Anchor: ring, shank, stock, flukes -->
+    <path android:pathData="M12,5 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 Z M12,7 V19.5 M8.5,10 H15.5 M5,14 C5,17.6 8.2,20 12,20 C15.8,20 19,17.6 19,14"
+        android:strokeColor="#B080E0" android:strokeWidth="1.8"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+</vector>

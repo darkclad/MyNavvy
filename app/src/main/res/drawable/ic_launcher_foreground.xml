@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Depth contours under the boat (kept inside the 66dp adaptive safe zone). -->
+    <path
+        android:pathData="M28,74 Q54,66 80,74"
+        android:strokeColor="#6fc6e8"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M34,81 Q54,75 74,81"
+        android:strokeColor="#6fc6e8"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round" />
+
+    <!-- Sailboat: mast, mainsail, jib, hull -->
+    <path android:pathData="M53.2,22 h1.6 v34 h-1.6 z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M53,24 L53,55 L33,55 Z" android:fillColor="#FFFFFF" />
+    <path android:pathData="M55,28 L55,55 L69,55 Z" android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M30,57 L78,57 L70.5,67 C64,70.5 44,70.5 37.5,67 Z"
+        android:fillColor="#FFFFFF" />
+</vector>

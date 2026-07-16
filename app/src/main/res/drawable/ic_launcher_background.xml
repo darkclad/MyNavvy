@@ -1,0 +1,21 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Deep navy field -->
+    <path android:pathData="M0,0 h108 v108 h-108 z" android:fillColor="#0F1418" />
+
+    <!-- Faint chart-contour texture -->
+    <path
+        android:pathData="M-4,40 Q54,26 112,40"
+        android:strokeColor="#6fc6e8"
+        android:strokeAlpha="0.16"
+        android:strokeWidth="2.5" />
+    <path
+        android:pathData="M-4,52 Q54,38 112,52"
+        android:strokeColor="#6fc6e8"
+        android:strokeAlpha="0.10"
+        android:strokeWidth="2.5" />
+</vector>

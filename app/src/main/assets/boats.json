@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "note": "Seed boat catalogue bundled in the APK. A fuller boats.json published to dist.darkclad.org/mynavvy/data/ overrides this at runtime. Lengths in metres, displacement in kg. One entry PER KEEL VARIANT: the keel, not the year, determines draft, and draft decides what water the router calls safe.",
+  "boats": [
+    {
+      "id": "catalina-34-mki-fin",
+      "make": "Catalina",
+      "model": "34 MkI",
+      "keel": "fin",
+      "yearFrom": 1986,
+      "yearTo": 1994,
+      "loaM": 10.52,
+      "lwlM": 9.09,
+      "beamM": 3.58,
+      "draftM": 1.70,
+      "displacementKg": 5420,
+      "source": "sailboatdata.com; en.wikipedia.org/wiki/Catalina_34 (5.58 ft draft, 11950 lb disp)"
+    },
+    {
+      "id": "catalina-34-mki-wing",
+      "make": "Catalina",
+      "model": "34 MkI",
+      "keel": "wing",
+      "yearFrom": 1990,
+      "yearTo": 1994,
+      "loaM": 10.52,
+      "lwlM": 9.09,
+      "beamM": 3.58,
+      "draftM": 1.30,
+      "displacementKg": 5693,
+      "source": "sailboatdata.com; en.wikipedia.org/wiki/Catalina_34 (4.25 ft draft, 12550 lb disp)"
+    },
+    {
+      "id": "catalina-34-mki-shoal",
+      "make": "Catalina",
+      "model": "34 MkI",
+      "keel": "shoal",
+      "yearFrom": 1986,
+      "yearTo": 1990,
+      "loaM": 10.52,
+      "lwlM": 9.09,
+      "beamM": 3.58,
+      "draftM": 1.42,
+      "displacementKg": 5716,
+      "source": "sailboatdata.com; en.wikipedia.org/wiki/Catalina_34 (4.67 ft draft, 12600 lb disp)"
+    }
+  ]
+}
