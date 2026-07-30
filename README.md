@@ -10,13 +10,19 @@ sailboat. Free NOAA chart data, fully offline, no cloud accounts, no Google Play
 ## What it does
 
 - **Offline vector charts** — NOAA ENC (S-57) rendered by MapLibre from a local MBTiles
-  file, served by an in-app localhost tile server. An OSM land basemap fills in shore
-  detail, growing offline coverage as you cruise ("read-through" tile cache).
+  file, served by an in-app localhost tile server. A self-hosted **OpenMapTiles** land
+  basemap (built with Planetiler) fills in shore/road detail and grows offline coverage
+  as you cruise via a "read-through" tile cache.
 - **Live navigation** — boat marker with heading wedge, course-up tilted Navigation HUD
   (Simrad NSO-style corner panels + heading tape), speed/course/position/depth sidebar,
   tide-corrected depth and under-keel clearance for *your* draft.
 - **Instruments** — Helm (steering page), Wind (relative wind dial), Trip — drawn as
   custom Canvas gauges inside Jetpack Compose (no XML), styled after Simrad NSO-Evo.
+- **Live boat data (NMEA-0183 over WiFi)** — reads position, COG/SOG, depth and wind
+  straight from the boat's own GPS/chartplotter (GoFree auto-discovery or a manual
+  TCP host), and falls back to the phone GPS automatically when the feed goes stale.
+- **Day / night themes** — day, night, and red-on-black night-vision chart palettes;
+  Auto mode flips at local sunrise/sunset and dims the screen for night watches.
 - **Split views** — any chart/nav/gauge pair, side-by-side (landscape) or stacked (portrait).
 - **Routes & marks** — tap-to-plan waypoints with GPX export; named saved marks.
 - **Weather routing** — draft-aware, time-optimal isochrone router using the wind forecast
@@ -27,9 +33,9 @@ sailboat. Free NOAA chart data, fully offline, no cloud accounts, no Google Play
   draw on the chart as dashed lines; browse / share / export / delete from the menu.
 - **Anchor watch** — swing circle, live rode line, drag alarm (runs in a foreground
   service, screen off).
-- **Remote diagnostics** — crashes and on-demand log snapshots report to a self-hosted
-  Sentry-compatible server; builds and chart data are delivered over HTTPS with SHA-256
-  verification, so a remote tablet needs no adb.
+- **Self-updating & remote diagnostics** — an in-app auto-updater pulls new builds over
+  HTTPS with SHA-256 verification; crashes and on-demand log snapshots report to a
+  self-hosted Sentry-compatible server — so a remote tablet needs no adb.
 
 ## Repo layout
 
