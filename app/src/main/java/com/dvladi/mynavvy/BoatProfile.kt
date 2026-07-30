@@ -26,6 +26,8 @@ data class BoatProfile(
     var displacementKg: Double = 0.0,
 
     var cruiseKn: Double = 6.0,      // motoring cruise speed
+    var maxSpeedKn: Double = 20.0,   // top speed this boat can make — the GPS filter drops any fix
+                                     // implying a jump faster than this (physically impossible = spike)
     var ukcMarginM: Double = 0.5,    // required clearance under the keel
 
     var units: String = "m",         // "m" or "ft" — display only
@@ -48,7 +50,7 @@ data class BoatProfile(
         put("loaM", loaM); put("lwlM", lwlM); put("beamM", beamM)
         put("draftM", draftM); put("airDraftM", airDraftM)
         put("displacementKg", displacementKg)
-        put("cruiseKn", cruiseKn); put("ukcMarginM", ukcMarginM)
+        put("cruiseKn", cruiseKn); put("maxSpeedKn", maxSpeedKn); put("ukcMarginM", ukcMarginM)
         put("units", units); put("defaultRangeNm", defaultRangeNm); put("dayMode", dayMode)
     }
 
@@ -89,6 +91,7 @@ data class BoatProfile(
             airDraftM = j.optDouble("airDraftM", 0.0),
             displacementKg = j.optDouble("displacementKg", 0.0),
             cruiseKn = j.optDouble("cruiseKn", 6.0),
+            maxSpeedKn = j.optDouble("maxSpeedKn", 20.0),
             ukcMarginM = j.optDouble("ukcMarginM", 0.5),
             units = j.optString("units", "m"),
             defaultRangeNm = j.optDouble("defaultRangeNm", 1.0),

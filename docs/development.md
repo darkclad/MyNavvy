@@ -47,6 +47,41 @@ Debug-only adb triggers (sim builds): `--ez crash true` (test crash report),
 `--ez snapshot true` (on-demand diagnostics snapshot) as extras to `am start` on
 `MainActivity`.
 
+## NMEA-over-WiFi bench testing
+
+`boatsim.py --nmea-server [PORT]` additionally serves the sim boat as **NMEA 0183 over
+TCP** (RMC/VTG/DPT/VHW @ 1 Hz, default port 10110) — a bench stand-in for the GO7's GoFree
+feed that exercises the real client → parser → position-authority chain
+(see [architecture.md](architecture.md)):
+
+```
+# PC: serve NMEA (works with --demo and the GUI; GUI status line shows client count)
+py -3.14 boatsim\boatsim.py --demo 60 --nmea-server
+
+# app (sim build): start/stop the NMEA source — 10.0.2.2 = host PC from the emulator;
+# from a real tablet on the PC's Mobile Hotspot use 192.168.137.1
+adb shell am broadcast -a com.dvladi.mynavvy.NMEA_DEBUG -p com.dvladi.mynavvy \
+    --es host 10.0.2.2 --ei port 10110
+adb shell am broadcast -a com.dvladi.mynavvy.NMEA_DEBUG -p com.dvladi.mynavvy --ez stop true
+
+# watch: raw sentences (also how GO7 parser fixtures get captured) + authority handoffs
+adb logcat -s NmeaRaw NmeaClient WatchService
+```
+
+While NMEA is live the DEPTH tile reads "sounder live", phone GPS is suppressed and
+SIM_FIX is ignored; stop the server (or walk out of range) and the app falls back to
+phone GPS / SIM_FIX within ~10 s. The emulator can't exercise the WiFi socket-binding
+gotcha — that needs a real tablet on an AP (e.g. the PC's Mobile Hotspot).
+
+The normal (non-debug) path is **Configuration → Data source**: *Boat (auto)* discovers
+the source (GoFree announce → gateway probe; on the emulator the probe finds boatsim via
+`10.0.2.2`), *Manual TCP* takes host:port, and **Test connection** shows a live raw-sentence
+log — that screen doubles as the on-boat GO7 probe. The choice persists (`nmea` prefs) and
+the service reconnects on every app start; the chrome chip next to ☰ shows
+`NMEA … / LIVE / STALE` and opens the dialog on tap. boatsim's `--nmea-server` also
+multicasts a GoFree-style announce every 5 s, so auto-discovery is testable on a real
+tablet over the PC's Mobile Hotspot (multicast doesn't reach the emulator).
+
 ## Emulator gotchas
 
 - **GLES crash guard:** the emulator's guest GL encoder SIGSEGVs when MapLibre renders a

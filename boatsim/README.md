@@ -95,4 +95,17 @@ python boatsim.py --list         # list adb devices
 python boatsim.py --demo 20       # headless: drive a 20 s S-turn (pipeline test)
 python boatsim.py --serial <sn>   # target a specific device
 python boatsim.py --smoke 3       # launch GUI and auto-close (self-test)
+python boatsim.py --nmea-server   # + serve NMEA 0183 over TCP :10110 (see below)
 ```
+
+## NMEA server (bench stand-in for the GO7)
+
+`--nmea-server [PORT]` (default 10110) additionally serves the sim boat as **NMEA 0183
+over TCP** — `$GPRMC` `$GPVTG` `$SDDPT` `$VWVHW` at 1 Hz, checksummed, depth from the
+routing grid where charted. MyNavvy's `NmeaClient` connects to it exactly as it would to
+the GO7's GoFree feed, which exercises the whole client → parser → position-authority
+chain (NMEA replaces SIM_FIX/GPS while live). From the **emulator** connect to
+`10.0.2.2:10110`; from a **real tablet on the PC's Mobile Hotspot** use
+`192.168.137.1:10110`. Works alongside the GUI (status line shows the client count) and
+`--demo`; with `--demo` and no adb device it runs an NMEA-only demo. See
+`docs/development.md` for the app-side `NMEA_DEBUG` broadcast.

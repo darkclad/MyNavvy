@@ -25,7 +25,9 @@ import java.net.URL
  */
 class MbTilesServer(
     port: Int,
-    seedFile: File,
+    /** Offline seed tiles. May be null / not-yet-downloaded: with a [remoteTilesUrl] the server then
+     *  runs cache-only, bootstrapping every tile from the network into [cacheFile] (fresh-install land map). */
+    seedFile: File?,
     /** Writable side-DB that accumulates tiles fetched from [remoteTilesUrl]. null = no caching. */
     cacheFile: File? = null,
     /** XYZ tile URL template, e.g. "https://basemap.darkclad.org/tiles/{z}/{x}/{y}.pbf". null = offline-only. */
@@ -34,8 +36,11 @@ class MbTilesServer(
     private val isOnline: () -> Boolean = { false }
 ) : NanoHTTPD("127.0.0.1", port) {
 
-    private val db: SQLiteDatabase =
-        SQLiteDatabase.openDatabase(seedFile.path, null, SQLiteDatabase.OPEN_READONLY)
+    /** The offline seed DB — null when there's no seed file yet (cache-only / remote-bootstrap mode). */
+    private val db: SQLiteDatabase? = seedFile?.takeIf { it.exists() }?.let {
+        try { SQLiteDatabase.openDatabase(it.path, null, SQLiteDatabase.OPEN_READONLY) }
+        catch (e: Exception) { Log.w(TAG, "seed open failed (${it.name}): ${e.message}"); null }
+    }
 
     /** Fetched-tile cache. Created on demand so a fresh install starts caching immediately. */
     private val cache: SQLiteDatabase? = cacheFile?.let { openOrCreateCache(it) }
@@ -52,7 +57,7 @@ class MbTilesServer(
     val maxZoom: Int = readMetadata("maxzoom")?.toIntOrNull() ?: queryZoom("MAX") ?: 14
 
     private fun queryZoom(fn: String): Int? = try {
-        db.rawQuery("SELECT $fn(zoom_level) FROM tiles", null).use { c ->
+        db?.rawQuery("SELECT $fn(zoom_level) FROM tiles", null)?.use { c ->
             if (c.moveToFirst() && !c.isNull(0)) c.getInt(0) else null
         }
     } catch (e: Exception) {
@@ -60,7 +65,7 @@ class MbTilesServer(
     }
 
     private fun readMetadata(name: String): String? = try {
-        db.rawQuery("SELECT value FROM metadata WHERE name = ?", arrayOf(name)).use { c ->
+        db?.rawQuery("SELECT value FROM metadata WHERE name = ?", arrayOf(name))?.use { c ->
             if (c.moveToFirst()) c.getString(0) else null
         }
     } catch (e: Exception) {
@@ -78,7 +83,7 @@ class MbTilesServer(
         val tmsY = (1 shl z) - 1 - y
 
         // 1) seed file, 2) already-cached tile, 3) fetch from remote and cache it.
-        var data = queryTile(db, z, x, tmsY)
+        var data = db?.let { queryTile(it, z, x, tmsY) }
         if (data == null && cache != null) data = queryTile(cache, z, x, tmsY)
         if (data == null && remoteTilesUrl != null && isOnline()) data = fetchRemote(z, x, y, tmsY)
 
@@ -155,7 +160,7 @@ class MbTilesServer(
     fun cacheRemoteTile(z: Int, x: Int, y: Int): Boolean {
         if (remoteTilesUrl == null || cache == null) return false
         val tmsY = (1 shl z) - 1 - y
-        if (queryTile(db, z, x, tmsY) != null || queryTile(cache, z, x, tmsY) != null) return true
+        if (db?.let { queryTile(it, z, x, tmsY) } != null || queryTile(cache, z, x, tmsY) != null) return true
         if (!isOnline()) return false
         return fetchRemote(z, x, y, tmsY) != null
     }
@@ -185,7 +190,7 @@ class MbTilesServer(
 
     override fun stop() {
         super.stop()
-        try { db.close() } catch (_: Exception) {}
+        try { db?.close() } catch (_: Exception) {}
         try { cache?.close() } catch (_: Exception) {}
     }
 

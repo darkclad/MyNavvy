@@ -26,6 +26,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -37,7 +38,19 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.runtime.mutableStateOf
 import com.dvladi.mynavvy.databinding.ActivityMainBinding
 import com.dvladi.mynavvy.game.NavData
+import com.dvladi.mynavvy.nmea.ConnectionState
+import com.dvladi.mynavvy.nmea.GoFreeDiscovery
+import com.dvladi.mynavvy.nmea.NmeaClient
+import com.dvladi.mynavvy.nmea.NmeaMode
+import com.dvladi.mynavvy.nmea.NmeaPrefs
+import com.dvladi.mynavvy.nmea.NmeaSource
 import com.dvladi.mynavvy.screens.NavHudScreen
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
@@ -86,6 +99,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
             watch = (service as? WatchService.LocalBinder)?.service
             watch?.setCallback(this@MainActivity)
+            // Adopt the service's live fix immediately: while we were unbound (screen off / backgrounded)
+            // our own lastLocation froze, so refresh it the moment we reconnect — otherwise the first
+            // "center on boat" / "reset anchor" after waking would act on a stale position.
+            watch?.currentFix?.let { lastLocation = it }
             watchBound = true
         }
         override fun onServiceDisconnected(name: android.content.ComponentName?) { watch = null; watchBound = false }
@@ -126,6 +143,9 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     // WatchService — the old manual ● record button is gone; this only controls what's DRAWN.
     private var trackHistory: TrackHistory.Overlay? = null
     private var historyTracksN = 5
+    /** Per-track "show on chart" state: epoch-days the user has hidden (live trail = today's day).
+     *  Empty = everything visible. Persisted as a CSV in [STATE_PREFS] under "hidden_tracks". */
+    private val hiddenTrackDays = HashSet<Long>()
 
     private val weatherRepo by lazy { WeatherRepository(this) }
     private var weatherOverlay: WeatherOverlay? = null
@@ -139,6 +159,9 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
 
     private val boat = BoatModel()
     private var routingGrid: RoutingGrid? = null
+
+    /** The installed chart region whose files are open (null only before any region exists). */
+    private var activeRegion: Region? = null
 
     // Custom vector boat marker — replaces MapLibre's location puck, which doesn't render reliably
     // against this style (see BoatMarker). The LocationComponent stays active for camera boat-follow.
@@ -202,8 +225,35 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
     }
 
+    // NMEA data-source status chip (top-left chrome). Polled at 2 s — cheap, and it must
+    // repaint on a fix DROUGHT (a stale source stops producing the fixes that would drive it).
+    // On a drought the HUD sidebar is repainted too, so age-gated live values (depth "sounder
+    // live") visibly fall back to chart data instead of freezing — never show stale as live.
+    private val chipHandler = Handler(Looper.getMainLooper())
+    private var lastOnFixMs = 0L
+    private val chipTicker = object : Runnable {
+        override fun run() {
+            updateNmeaChip()
+            if (android.os.SystemClock.elapsedRealtime() - lastOnFixMs > 5_000) updateHud()
+            // Fix drought → the boat dot goes grey ("no GPS signal"); a fresh fix repaints it blue/green.
+            if (android.os.SystemClock.elapsedRealtime() - lastOnFixMs > GPS_STALE_MS) applyBoatDotColor(DOT_NO_SIGNAL)
+            refreshTheme()      // Auto: flip day↔night promptly at dusk/dawn
+            chipHandler.postDelayed(this, 2_000)
+        }
+    }
+    /** Scope for the Data source dialog's test-connection client. */
+    private val nmeaUiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
     /** Held true until the chart has drawn its first frame — the splash waits on this. */
     private var chartReady = false
+
+    /** Auto app-update check runs once per process (first resume), never blocks startup. */
+    private var appUpdateChecked = false
+
+    /** User's Display choice (persisted). Auto follows the sun; the rest force a theme. */
+    private var themeMode = ThemeMode.AUTO
+    /** The palette currently painted on the map(s) — tracks Auto's day/night flips. */
+    private var appliedTheme = ChartTheme.DAY
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Keep the cold-start splash up until the chart is genuinely ready, not on a timer.
@@ -236,11 +286,17 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         // (Keep the DEFAULT composition strategy — see the note in HelmFragment.onCreateView.)
         binding.navHud.setContent { NavHudScreen(navHudState.value) }
         depthLabelsOn = getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getBoolean("depth_labels", true)
+        themeMode = ThemeMode.from(getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getString("theme_mode", null))
 
-        routingGrid = RoutingGrid.load(
-            File(getExternalFilesDir(null), "routing_grid.png"),
-            File(getExternalFilesDir(null), "routing_grid.json")
-        )
+        // Multi-region: migrate any pre-region chart layout (files directly in the files dir) into
+        // regions/legacy-socal/, then resolve which installed region's charts to open.
+        Regions.migrateLegacy(this)
+        activeRegion = Regions.active(this)
+        routingGrid = activeRegion?.let { RoutingGrid.load(it.routingGridPng, it.routingGridJson) }
+            ?: RoutingGrid.load(   // no regions at all (fresh install): old path, loads nothing
+                File(getExternalFilesDir(null), "routing_grid.png"),
+                File(getExternalFilesDir(null), "routing_grid.json")
+            )
 
         wireControls()
 
@@ -288,6 +344,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
 
     private fun wireNav() {
         binding.btnMenu.setOnClickListener { toggleMenu() }
+        binding.tvNmeaChip.setOnClickListener { showNmeaDialog() }
         binding.menuChart.setOnClickListener { closeMenu(); selectChart() }
         binding.menuNav.setOnClickListener {
             closeMenu()
@@ -501,6 +558,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  bottom/right), plus place each map pane's scale bar and bound the chart's data sidebar. */
     private fun applyMapSplitRegion() {
         val (a, b) = mapSplit ?: return
+        updateToolbarColumns()        // portrait chart pane → 2-column tool grid
         updateZoomControlsMargins()   // sidebar leaves the right edge → buttons hug it
         val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val w = binding.contentArea.width; val h = binding.contentArea.height
@@ -564,9 +622,15 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             it.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
             it.measuredHeight + binding.hudScroll.paddingTop + binding.hudScroll.paddingBottom
         } ?: region[3]
-        // Room the buttons need under the sidebar: their stack + the 8dp gap + 10dp pane inset.
-        val buttonsH = binding.zoomControls.height.takeIf { it > 0 } ?: dp(52 * 3 + 6 * 2)
-        val reserved = buttonsH + dp(8 + 10)
+        // Bottom strip to keep clear for the zoom buttons:
+        //  - Chart/Nav: the buttons are on the OTHER (nav) pane → reserve nothing, use the full height.
+        //  - portrait chart+gauge: a single horizontal button row hugs the pane bottom → reserve ~1 row.
+        //  - landscape chart pane (tall/narrow): the buttons are a vertical stack under the sidebar.
+        val reserved = when {
+            bothMapsActive() -> 0
+            resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT -> dp(52 + 8 + 10)
+            else -> (binding.zoomControls.height.takeIf { it > 0 } ?: dp(52 * 3 + 6 * 2)) + dp(8 + 10)
+        }
         binding.hudScroll.updateLayoutParams<FrameLayout.LayoutParams> {
             height = minOf(contentH, region[3] - reserved)
             topMargin = region[1]
@@ -663,6 +727,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                 else -> Style.Builder().fromUri("asset://empty_style.json")
             }
             m2.setStyle(builder) { style ->
+                applyChartTheme(style)
                 boatMarker2 = BoatMarker(style)
                 updateSecondMapCamera()
             }
@@ -720,6 +785,46 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         val v = layoutInflater.inflate(R.layout.dialog_config, null)
         val dlg = androidx.appcompat.app.AlertDialog.Builder(this).setView(v).create()
 
+        // Tabs: Display / Boat / Data — one scrolling section at a time (the whole dialog no longer
+        // fits a short landscape screen). Selected tab = black text, others dimmed.
+        val secDisplay = v.findViewById<View>(R.id.secDisplay)
+        val secBoat = v.findViewById<View>(R.id.secBoat)
+        val secData = v.findViewById<View>(R.id.secData)
+        val tabDisplay = v.findViewById<android.widget.Button>(R.id.btnTabDisplay)
+        val tabBoat = v.findViewById<android.widget.Button>(R.id.btnTabBoat)
+        val tabData = v.findViewById<android.widget.Button>(R.id.btnTabData)
+        fun selectTab(which: Int) {
+            secDisplay.visibility = if (which == 0) View.VISIBLE else View.GONE
+            secBoat.visibility = if (which == 1) View.VISIBLE else View.GONE
+            secData.visibility = if (which == 2) View.VISIBLE else View.GONE
+            val accent = Color.parseColor("#6fc6e8")
+            tabDisplay.setTextColor(if (which == 0) Color.BLACK else accent)
+            tabBoat.setTextColor(if (which == 1) Color.BLACK else accent)
+            tabData.setTextColor(if (which == 2) Color.BLACK else accent)
+        }
+        tabDisplay.setOnClickListener { selectTab(0); onTabChanged?.invoke() }
+        tabBoat.setOnClickListener { selectTab(1); onTabChanged?.invoke() }
+        tabData.setOnClickListener { selectTab(2); onTabChanged?.invoke() }
+        selectTab(0)
+
+        // Display: Auto (sun) / Day / Night / Night-red — applied live, persisted.
+        val themeAuto = v.findViewById<android.widget.Button>(R.id.btnThemeAuto)
+        val themeDay = v.findViewById<android.widget.Button>(R.id.btnThemeDay)
+        val themeNight = v.findViewById<android.widget.Button>(R.id.btnThemeNight)
+        val themeNightRed = v.findViewById<android.widget.Button>(R.id.btnThemeNightRed)
+        fun paintTheme() {
+            val accent = Color.parseColor("#6fc6e8")
+            themeAuto.setTextColor(if (themeMode == ThemeMode.AUTO) Color.BLACK else accent)
+            themeDay.setTextColor(if (themeMode == ThemeMode.DAY) Color.BLACK else accent)
+            themeNight.setTextColor(if (themeMode == ThemeMode.NIGHT) Color.BLACK else accent)
+            themeNightRed.setTextColor(if (themeMode == ThemeMode.NIGHT_RED) Color.BLACK else accent)
+        }
+        themeAuto.setOnClickListener { setThemeMode(ThemeMode.AUTO); paintTheme() }
+        themeDay.setOnClickListener { setThemeMode(ThemeMode.DAY); paintTheme() }
+        themeNight.setOnClickListener { setThemeMode(ThemeMode.NIGHT); paintTheme() }
+        themeNightRed.setOnClickListener { setThemeMode(ThemeMode.NIGHT_RED); paintTheme() }
+        paintTheme()
+
         val sail = v.findViewById<android.widget.Button>(R.id.btnModeSail)
         val motor = v.findViewById<android.widget.Button>(R.id.btnModeMotor)
         val mtrSail = v.findViewById<android.widget.Button>(R.id.btnModeMotorSail)
@@ -733,6 +838,22 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         motor.setOnClickListener { boat.mode = BoatMode.MOTOR; paintMode() }
         mtrSail.setOnClickListener { boat.mode = BoatMode.MOTORSAIL; paintMode() }
         paintMode()
+
+        // Top speed: the GPS glitch gate. Steps through preset knots (cap 200); persisted + applied live.
+        val speedProfile = BoatProfile.load(this)
+        val speedSteps = listOf(5, 8, 10, 12, 15, 20, 25, 30, 40, 60, 80, 100, 150, 200)
+        val tvMaxSpeed = v.findViewById<android.widget.TextView>(R.id.tvMaxSpeedValue)
+        fun stepMaxSpeed(dir: Int) {
+            val cur = speedProfile.maxSpeedKn.toInt()
+            val idx = speedSteps.indexOfFirst { it >= cur }.let { if (it < 0) speedSteps.lastIndex else it }
+            speedProfile.maxSpeedKn = speedSteps[(idx + dir).coerceIn(0, speedSteps.lastIndex)].toDouble()
+            BoatProfile.save(this, speedProfile)
+            tvMaxSpeed.text = "${speedProfile.maxSpeedKn.toInt()} kn"
+            watch?.refreshFilterConfig()   // apply the new gate immediately
+        }
+        tvMaxSpeed.text = "${speedProfile.maxSpeedKn.toInt()} kn"
+        v.findViewById<android.widget.Button>(R.id.btnMaxSpeedDown).setOnClickListener { stepMaxSpeed(-1) }
+        v.findViewById<android.widget.Button>(R.id.btnMaxSpeedUp).setOnClickListener { stepMaxSpeed(+1) }
 
         // Units: Metric / Imperial — affects depth, clearance and tide (vertical measures) plus the
         // close-in scale bar. Persisted to the boat profile; applied live.
@@ -796,6 +917,14 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         v.findViewById<android.widget.Button>(R.id.btnHistDown).setOnClickListener { stepHist(-1) }
         v.findViewById<android.widget.Button>(R.id.btnHistUp).setOnClickListener { stepHist(+1) }
 
+        v.findViewById<android.widget.Button>(R.id.btnCfgNmea).setOnClickListener {
+            dlg.dismiss(); showNmeaDialog()
+        }
+        v.findViewById<android.widget.Button>(R.id.btnCfgRegion).apply {
+            text = "Charts region — ${activeRegion?.name ?: "none"}" +
+                if (Regions.autoByGps(this@MainActivity)) " (auto)" else ""
+            setOnClickListener { dlg.dismiss(); showRegionDialog() }
+        }
         v.findViewById<android.widget.Button>(R.id.btnCfgBoat).setOnClickListener {
             dlg.dismiss(); startActivity(android.content.Intent(this, BoatConfigActivity::class.java))
         }
@@ -808,7 +937,339 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         v.findViewById<android.widget.Button>(R.id.btnCfgReload).setOnClickListener {
             dlg.dismiss(); reloadCharts()
         }
+        v.findViewById<android.widget.Button>(R.id.btnCfgUpdate).setOnClickListener {
+            dlg.dismiss()
+            Toast.makeText(this, "Checking for updates…", Toast.LENGTH_SHORT).show()
+            checkForAppUpdate(silent = false)
+        }
+        v.findViewById<android.widget.Button>(R.id.btnCfgShareLogs).setOnClickListener {
+            dlg.dismiss(); shareDiagnostics()
+        }
         dlg.show()
+        val dm = resources.displayMetrics
+        // Anchor near the top (not centre) so the title + tab bar hold their position when switching
+        // tabs resizes the dialog — only the content below grows/shrinks, no vertical jump.
+        dlg.window?.apply {
+            setLayout(minOf((dm.widthPixels * 0.94f).toInt(), (620 * dm.density).toInt()),
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
+            setGravity(Gravity.TOP)
+            attributes = attributes.apply { y = dp(40) }
+        }
+        // The dialog wraps its content, so a short tab has no empty gap. Only when a tab is taller
+        // than 90% of the screen do we clamp the ScrollView's height so IT scrolls (title + tabs
+        // stay fixed) instead of the dialog running off-screen. Re-checked after each tab switch.
+        val scroll = v.findViewById<ScrollView>(R.id.cfgScroll)
+        fun clampScroll() = v.post {
+            val budget = (dm.heightPixels * 0.9f).toInt()
+            val lp = scroll.layoutParams
+            val naturalScroll = scroll.getChildAt(0)?.height ?: 0
+            val overflow = v.height - budget
+            val target = if (v.height > budget) (naturalScroll - overflow).coerceAtLeast(dp(120))
+                         else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            if (lp.height != target) { lp.height = target; scroll.layoutParams = lp }
+        }
+        onTabChanged = { clampScroll() }
+        clampScroll()
+    }
+
+    /** Set by showConfigDialog so the tab click handlers can re-clamp the scroll height. */
+    private var onTabChanged: (() -> Unit)? = null
+
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    /** Write a diagnostics report (device/state header + the app's own log) and hand it to the share
+     *  sheet — the field way to get logs off the tablet (email / Drive / WhatsApp) with no ADB. */
+    private fun shareDiagnostics() {
+        Toast.makeText(this, "Building diagnostics…", Toast.LENGTH_SHORT).show()
+        Thread {
+            val ok = runCatching {
+                val f = Diagnostics.writeReport(this)
+                val uri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", f)
+                runOnUiThread {
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "MyNavvy diagnostics ${BuildConfig.VERSION_NAME}")
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        putExtra(Intent.EXTRA_TEXT, "MyNavvy log attached (build ${BuildConfig.VERSION_CODE}).")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    startActivity(Intent.createChooser(send, "Share diagnostics"))
+                }
+            }.isSuccess
+            if (!ok) runOnUiThread { Toast.makeText(this, "Couldn't build diagnostics", Toast.LENGTH_SHORT).show() }
+        }.start()
+    }
+
+    // --- In-app self-updater --------------------------------------------------
+
+    /**
+     * Check the publish manifest for a newer APK. [silent] auto-checks (on launch) stay quiet when
+     * up to date / offline and honour the "Later" dismissal; a manual check reports every outcome.
+     */
+    private fun checkForAppUpdate(silent: Boolean) {
+        AppUpdater.check(this) { release, error ->
+            when {
+                release != null -> {
+                    if (silent && release.versionCode <= AppUpdater.dismissedCode(this)) return@check
+                    showAppUpdateDialog(release)
+                }
+                silent -> { /* auto-check: never nag on up-to-date / offline / error */ }
+                error == "offline" -> Toast.makeText(this, "No connection — can't check for updates", Toast.LENGTH_SHORT).show()
+                error != null -> Toast.makeText(this, "Update check failed: $error", Toast.LENGTH_LONG).show()
+                else -> Toast.makeText(this, "MyNavvy ${BuildConfig.VERSION_NAME} is up to date", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun showAppUpdateDialog(r: AppUpdater.Release) {
+        val mb = if (r.size > 0) String.format(Locale.US, " · %.1f MB", r.size / 1048576.0) else ""
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Update available")
+            .setMessage("MyNavvy ${r.versionName} (build ${r.versionCode})$mb\n\n" +
+                "You have ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE}).")
+            .setPositiveButton("Update") { _, _ -> startAppUpdate(r) }
+            .setNegativeButton("Later") { d, _ -> AppUpdater.setDismissed(this, r.versionCode); d.dismiss() }
+            .show()
+    }
+
+    private fun startAppUpdate(r: AppUpdater.Release) {
+        // On Android 8+ the user must first allow MyNavvy to install apps; bounce them to Settings.
+        if (!AppUpdater.canInstall(this)) {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("Allow app installs")
+                .setMessage("To update itself, MyNavvy needs permission to install apps. Enable it on the " +
+                    "next screen, then tap “Check for app updates” again.")
+                .setPositiveButton("Open settings") { _, _ ->
+                    runCatching { startActivity(AppUpdater.unknownSourcesSettings(this)) }
+                        .onFailure { Toast.makeText(this, "Couldn't open settings", Toast.LENGTH_SHORT).show() }
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+        val progress = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Downloading update")
+            .setMessage("Starting…")
+            .setCancelable(false)
+            .create()
+        progress.show()
+        AppUpdater.downloadAndInstall(this, r,
+            onProgress = { done, total ->
+                progress.setMessage(
+                    if (total > 0) String.format(Locale.US, "Downloading… %d%%  (%.1f / %.1f MB)",
+                        done * 100 / total, done / 1048576.0, total / 1048576.0)
+                    else String.format(Locale.US, "Downloading… %.1f MB", done / 1048576.0))
+            },
+            onDone = { ok, msg ->
+                progress.dismiss()
+                Toast.makeText(this,
+                    if (ok) "Opening installer…" else "Update failed: $msg",
+                    if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+            })
+    }
+
+    // --- Data source (NMEA over WiFi) dialog + status chip --------------------
+
+    /**
+     * Settings → Data source: Phone GPS / Boat (auto-discover) / Manual TCP. Mode clicks
+     * apply immediately (this app's settings are live); host/port edits apply on close.
+     * "Test connection" runs its OWN [NmeaClient] independent of the service pipeline and
+     * scrolls the raw sentences — this doubles as the on-boat GO7 probe screen.
+     */
+    private fun showNmeaDialog() {
+        val v = layoutInflater.inflate(R.layout.dialog_nmea, null)
+        val dlg = androidx.appcompat.app.AlertDialog.Builder(this).setView(v).create()
+
+        var mode = NmeaPrefs.load(this).mode
+        val saved = NmeaPrefs.load(this)
+        val gps = v.findViewById<Button>(R.id.btnSrcGps)
+        val auto = v.findViewById<Button>(R.id.btnSrcAuto)
+        val manual = v.findViewById<Button>(R.id.btnSrcManual)
+        val hint = v.findViewById<TextView>(R.id.tvSrcHint)
+        val rowManual = v.findViewById<View>(R.id.rowManual)
+        val etHost = v.findViewById<EditText>(R.id.etNmeaHost)
+        val etPort = v.findViewById<EditText>(R.id.etNmeaPort)
+        val status = v.findViewById<TextView>(R.id.tvNmeaStatus)
+        val log = v.findViewById<TextView>(R.id.tvNmeaLog)
+        etHost.setText(saved.host)
+        etPort.setText(saved.port.toString())
+
+        fun uiPrefs() = NmeaPrefs(
+            mode = mode,
+            host = etHost.text.toString().trim().ifEmpty { NmeaPrefs.DEFAULT_HOST },
+            port = etPort.text.toString().trim().toIntOrNull()?.coerceIn(1, 65535)
+                ?: NmeaPrefs.DEFAULT_PORT)
+
+        val accent = Color.parseColor("#6fc6e8")
+        fun paint() {
+            gps.setTextColor(if (mode == NmeaMode.OFF) Color.BLACK else accent)
+            auto.setTextColor(if (mode == NmeaMode.AUTO) Color.BLACK else accent)
+            manual.setTextColor(if (mode == NmeaMode.MANUAL) Color.BLACK else accent)
+            rowManual.visibility = if (mode == NmeaMode.MANUAL) View.VISIBLE else View.GONE
+            hint.text = when (mode) {
+                NmeaMode.OFF -> "Phone GPS only — no boat connection"
+                NmeaMode.AUTO -> "Finds the boat's NMEA feed on this WiFi (GoFree announce, then gateway probe)"
+                NmeaMode.MANUAL -> "Fixed TCP endpoint — GO7 access point default is 192.168.0.1:10110"
+            }
+        }
+        fun applyMode(m: NmeaMode) {
+            mode = m
+            NmeaPrefs.save(this, uiPrefs())
+            watch?.applyNmeaPrefs()
+            updateNmeaChip()
+            paint()
+        }
+        gps.setOnClickListener { applyMode(NmeaMode.OFF) }
+        auto.setOnClickListener { applyMode(NmeaMode.AUTO) }
+        manual.setOnClickListener { applyMode(NmeaMode.MANUAL) }
+        paint()
+
+        // Test connection — separate client/socket so the service pipeline is untouched.
+        var testJob: Job? = null
+        v.findViewById<Button>(R.id.btnNmeaTest).setOnClickListener {
+            testJob?.cancel()
+            val p = uiPrefs()
+            log.text = ""
+            status.text = "testing…"
+            val lines = ArrayDeque<String>()
+            var count = 0L
+            testJob = nmeaUiScope.launch {
+                val client = if (mode == NmeaMode.AUTO)
+                    NmeaClient(this@MainActivity) { network ->
+                        GoFreeDiscovery.discover(this@MainActivity, network)
+                            ?: GoFreeDiscovery.probeGateway(this@MainActivity, network)
+                    }
+                else NmeaClient(this@MainActivity, NmeaSource(p.host, p.port))
+                launch {
+                    client.state.collect { st ->
+                        if (count == 0L) status.text = when (st) {
+                            is ConnectionState.Off -> "—"
+                            is ConnectionState.Connecting ->
+                                if (mode == NmeaMode.AUTO) "searching… (try ${st.attempt})"
+                                else "connecting to ${p.host}:${p.port}… (try ${st.attempt})"
+                            is ConnectionState.Connected -> "connected · ${st.source} — waiting for data"
+                            is ConnectionState.Waiting -> "no connection — retry in ${st.retryInMs / 1000}s"
+                        }
+                    }
+                }
+                client.sentences.collect { s ->
+                    count++
+                    if (lines.size >= 8) lines.removeFirst()
+                    lines.addLast(s)
+                    log.text = lines.joinToString("\n")
+                    status.text = "LIVE · $count sentences"
+                }
+            }
+        }
+
+        v.findViewById<Button>(R.id.btnNmeaClose).setOnClickListener { dlg.dismiss() }
+        dlg.setOnDismissListener {
+            testJob?.cancel()
+            val now = uiPrefs()
+            if (now != NmeaPrefs.load(this)) { // host/port edited after the last mode click
+                NmeaPrefs.save(this, now)
+                watch?.applyNmeaPrefs()
+            }
+            updateNmeaChip()
+        }
+        dlg.show()
+    }
+
+    /** Repaint the top-left NMEA chip from the service's state. Hidden when source = GPS. */
+    private fun updateNmeaChip() {
+        val chip = binding.tvNmeaChip
+        val (state, _) = watch?.nmeaChipState() ?: (WatchService.NmeaChip.OFF to null)
+        when (state) {
+            WatchService.NmeaChip.OFF -> { chip.visibility = View.GONE; return }
+            WatchService.NmeaChip.LIVE -> { chip.text = "NMEA LIVE"; chip.setTextColor(Color.parseColor("#6fdc8c")) }
+            WatchService.NmeaChip.STALE -> { chip.text = "NMEA STALE"; chip.setTextColor(Color.parseColor("#ffb347")) }
+        }
+        chip.visibility = View.VISIBLE
+    }
+
+    // --- Charts region picker -------------------------------------------------
+
+    /**
+     * Region management: tap an installed region to pin it (manual override), toggle GPS
+     * auto-switch, download further published regions, or delete one. Switching regions goes
+     * through recreate() — the same reload path the post-download flow already uses.
+     */
+    private fun showRegionDialog() {
+        val installed = Regions.installed(this)
+        val act = activeRegion
+        val labels = installed.map { r ->
+            val marks = buildString {
+                if (r.id == act?.id) append(" ●")
+                if (r.syntheticMX || r.syntheticCA) append(" ⚠syn")
+            }
+            "${r.name}$marks"
+        }.toTypedArray()
+        val auto = Regions.autoByGps(this)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Charts region" + if (auto) " · auto by GPS" else " · manual")
+            .setItems(labels) { _, i ->
+                val r = installed[i]
+                Regions.setAutoByGps(this, false)   // an explicit pick is a manual pin
+                Regions.setActiveId(this, r.id)
+                if (r.id != act?.id) {
+                    Toast.makeText(this, "Switching charts to ${r.name}", Toast.LENGTH_SHORT).show()
+                    recreate()
+                } else Toast.makeText(this, "Region pinned: ${r.name}", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton(if (auto) "Auto: ON" else "Auto: OFF") { _, _ ->
+                Regions.setAutoByGps(this, !auto)
+                Toast.makeText(this, if (!auto) "Auto-switch by GPS on" else "Region stays pinned", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Delete…") { _, _ -> showRegionDeleteDialog(installed) }
+            .setPositiveButton("Get more…") { _, _ -> showRegionDownloadDialog() }
+            .show()
+    }
+
+    private fun showRegionDeleteDialog(installed: List<Region>) {
+        if (installed.size <= 1) {
+            Toast.makeText(this, "Can't delete the last region — no charts, no app", Toast.LENGTH_LONG).show()
+            return
+        }
+        val labels = installed.map { it.name }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Delete region")
+            .setItems(labels) { _, i ->
+                val r = installed[i]
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setMessage("Delete ${r.name}? Its charts must be re-downloaded to use it again.")
+                    .setPositiveButton("Delete") { _, _ ->
+                        val wasActive = r.id == activeRegion?.id
+                        if (Regions.delete(this, r.id)) {
+                            Toast.makeText(this, "${r.name} deleted", Toast.LENGTH_SHORT).show()
+                            if (wasActive) recreate()
+                        }
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            .show()
+    }
+
+    /** Fetch the manifest and offer regions not yet installed (non-blocking — "Not now" allowed). */
+    private fun showRegionDownloadDialog() {
+        Toast.makeText(this, "Checking published regions…", Toast.LENGTH_SHORT).show()
+        DataAssets.checkState(this) { _, available, _, err ->
+            when {
+                err != null -> Toast.makeText(this, "Can't reach the chart server: $err", Toast.LENGTH_LONG).show()
+                available.isEmpty() -> Toast.makeText(this, "No further regions published", Toast.LENGTH_LONG).show()
+                else -> chooseRegion(available) { r ->
+                    binding.dataOverlay.visibility = View.VISIBLE
+                    binding.btnDataSkip.visibility = View.VISIBLE
+                    binding.btnDataSkip.text = "Not now"
+                    binding.btnDataSkip.setOnClickListener { binding.dataOverlay.visibility = View.GONE }
+                    binding.tvDataStatus.text = String.format(
+                        Locale.US, "Download region %s?\n\n%.0f MB — use Wi-Fi.",
+                        r.name, r.sizeBytes / 1048576.0
+                    )
+                    showDataAction("Download") { startDataDownload(DataAssets.regionDownloads(r), r.sizeBytes) }
+                }
+            }
+        }
     }
 
     // --- First-run data download (charts + routing grid) ---------------------
@@ -834,22 +1295,32 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             binding.btnDataSkip.setOnClickListener { binding.dataOverlay.visibility = View.GONE }
         }
 
-        DataAssets.checkPending(this) { pending, total, err ->
+        DataAssets.checkState(this) { pending, available, total, err ->
             when {
                 err != null -> {
                     // Already have usable charts? Stay quiet — no nagging offshore.
-                    if (!firstRun) return@checkPending
+                    if (!firstRun) return@checkState
                     binding.tvDataStatus.text =
                         "MyNavvy can't start without its charts.\n\nCouldn't reach the chart server:\n$err"
                     showDataAction("Retry") { maybeFetchData() }
                 }
-                pending.isEmpty() && firstRun -> {
+                firstRun && available.isEmpty() -> {
                     binding.tvDataStatus.text =
-                        "MyNavvy can't start without its charts.\n\nThe chart server published nothing to download."
+                        "MyNavvy can't start without its charts.\n\nThe chart server published no regions to download."
                     showDataAction("Retry") { maybeFetchData() }
                 }
+                firstRun -> {
+                    // First run: no charts, no app — pick a region (auto when only one is published)
+                    // and block on the full overlay until it downloads.
+                    if (available.size == 1) offerFirstRegion(available[0])
+                    else {
+                        binding.tvDataStatus.text =
+                            "MyNavvy needs an offline chart region before it can be used."
+                        showDataAction("Choose region") { chooseRegion(available) { offerFirstRegion(it) } }
+                    }
+                }
                 pending.isEmpty() -> binding.dataOverlay.visibility = View.GONE
-                !firstRun -> {
+                else -> {
                     // Optional update on an already-usable install: offer it via the top banner so the
                     // chart stays live and tappable. Tapping Download hands off to the full overlay
                     // (progress bar) which is fine once the user has opted in.
@@ -868,19 +1339,34 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                         startDataDownload(pending, total)
                     }
                 }
-                else -> {
-                    // First run: no charts, no app — block on the full overlay until they download.
-                    val mb = total / 1048576.0
-                    binding.dataOverlay.visibility = View.VISIBLE
-                    binding.tvDataStatus.text = String.format(
-                        Locale.US,
-                        "MyNavvy needs its offline charts before it can be used.\n\n%d file(s), %.0f MB\n\nDownload over Wi-Fi now?",
-                        pending.size, mb
-                    )
-                    showDataAction("Download") { startDataDownload(pending, total) }
-                }
             }
         }
+    }
+
+    /** First-run install of one manifest region (the blocking "no charts, no app" path). */
+    private fun offerFirstRegion(r: DataAssets.ManifestRegion) {
+        binding.dataOverlay.visibility = View.VISIBLE
+        binding.tvDataStatus.text = String.format(
+            Locale.US,
+            "MyNavvy needs its offline charts before it can be used.\n\nRegion: %s\n%.0f MB\n\nDownload over Wi-Fi now?",
+            r.name, r.sizeBytes / 1048576.0
+        )
+        showDataAction("Download") { startDataDownload(DataAssets.regionDownloads(r), r.sizeBytes) }
+    }
+
+    /** Simple picker over the manifest's published regions. */
+    private fun chooseRegion(
+        available: List<DataAssets.ManifestRegion>,
+        onPick: (DataAssets.ManifestRegion) -> Unit
+    ) {
+        val labels = available.map {
+            String.format(Locale.US, "%s (%.0f MB)", it.name, it.sizeBytes / 1048576.0)
+        }.toTypedArray()
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Chart region")
+            .setItems(labels) { _, i -> onPick(available[i]) }
+            .setCancelable(true)
+            .show()
     }
 
     private fun showDataAction(label: String, onClick: () -> Unit) {
@@ -890,7 +1376,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         binding.btnDataAction.setOnClickListener { onClick() }
     }
 
-    private fun startDataDownload(pending: List<DataAssets.Asset>, total: Long) {
+    private fun startDataDownload(pending: List<DataAssets.Pending>, total: Long) {
         val firstRun = DataAssets.dataMissing(this)
         binding.btnDataAction.isEnabled = false
         binding.btnDataSkip.visibility = View.GONE
@@ -964,13 +1450,17 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         m.uiSettings.isLogoEnabled = false
         m.uiSettings.isAttributionEnabled = false
 
-        val charts = File(getExternalFilesDir(null), "charts.mbtiles")
+        val reg = activeRegion
+        val charts = reg?.chartsFile ?: File(getExternalFilesDir(null), "charts.mbtiles")
         val builder: Style.Builder
         if (charts.exists()) {
             startTileServer(charts)
-            // Optional OSM land basemap — only if its file was downloaded. Never blocks charts.
-            val basemap = File(getExternalFilesDir(null), "basemap.mbtiles")
-            if (basemap.exists()) startBasemapServer(basemap)
+            // OSM land basemap. Start it whenever we have a remote source to pull from — even with no
+            // downloaded seed file — so a fresh tablet can fetch land online ("Download land map") and
+            // grow the offline cache as it cruises. Passing the (maybe-absent) seed puts it in
+            // cache-only/remote-bootstrap mode. Never blocks charts.
+            val basemap = reg?.basemapFile ?: File(getExternalFilesDir(null), "basemap.mbtiles")
+            startBasemapServer(basemap.takeIf { it.exists() })
             // Take the zoom range from the MBTiles itself, never from a hardcoded literal.
             val patched = tileServer?.let { chartStyleJson(it, basemapServer) }
             builder = if (patched != null) Style.Builder().fromJson(patched)
@@ -981,16 +1471,21 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
 
         defaultRangeNm = BoatProfile.load(this).defaultRangeNm
-        m.cameraPosition = CameraPosition.Builder().target(SAN_DIEGO)
-            .zoom(zoomForRangeNm(defaultRangeNm, SAN_DIEGO.latitude)).build()
+        // Camera home = the active region's center (was a hardcoded San Diego constant).
+        val home = activeRegion?.let { LatLng(it.centerLat, it.centerLon) } ?: SAN_DIEGO
+        m.cameraPosition = CameraPosition.Builder().target(home)
+            .zoom(zoomForRangeNm(defaultRangeNm, home.latitude)).build()
         m.setStyle(builder) { style ->
             loadedStyle = style
             activateLocationComponent(style)
             // History overlay first, so day-tracks draw BENEATH the live trail/route/track layers.
             if (trackHistory == null) trackHistory = TrackHistory.Overlay(style)
             historyTracksN = getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getInt("history_tracks", 5)
+            loadHiddenTracks()
             reloadTrackHistory()
             if (routeManager == null) routeManager = RouteManager(style)
+            seedTodayTrail()   // today's track stays the live/solid line across a restart or screen-off
+            applyTrackVisibility()   // honour the Tracks → "Show on chart" toggle across style reloads
             if (weatherOverlay == null) weatherOverlay = WeatherOverlay(style)
             // Added last so the anchor swing/rode/marker sit on top of route + weather layers.
             if (anchorWatch == null) anchorWatch = AnchorWatch(style)
@@ -1002,7 +1497,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                 boatMarker?.update(it.latitude, it.longitude,
                     if (it.hasBearing()) it.bearing.toDouble() else cogDeg, metersPerPixelNow(m))
             }
-            applySafetyShading(style)
+            applyChartTheme(style)
             applyDepthLabels()   // honour the toolbar depth toggle on (re)load
             // Long-press = the add/share menu (add waypoint · add mark · share location); on a feature
             // it manages that feature instead. A single tap manages a tapped feature, else reads depth.
@@ -1155,30 +1650,55 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
     }
 
-    private fun applySafetyShading(style: Style) {
+    /** The palette to paint right now: a forced theme, or — in [ThemeMode.AUTO] — day/night resolved
+     *  from the sun's elevation at the boat's position (falls back to San Diego before the first fix). */
+    private fun effectiveTheme(): ChartTheme = when (themeMode) {
+        ThemeMode.DAY -> ChartTheme.DAY
+        ThemeMode.NIGHT -> ChartTheme.NIGHT
+        ThemeMode.NIGHT_RED -> ChartTheme.NIGHT_RED
+        ThemeMode.AUTO -> {
+            val loc = lastLocation
+            val lat = loc?.latitude ?: SAN_DIEGO.latitude
+            val lon = loc?.longitude ?: SAN_DIEGO.longitude
+            val now = System.currentTimeMillis()
+            // Primary: the forecast's own sunrise/sunset. Fallback (no cache / offline gap): computed sun.
+            val daylight = weather?.isDaylight(now) ?: !SolarClock.isNight(lat, lon, now)
+            if (daylight) ChartTheme.DAY else ChartTheme.NIGHT
+        }
+    }
+
+    /** Paint [style] with the current effective theme (depth ramp keyed on this boat's safety depth).
+     *  Runs on every style load and on a draft change. */
+    private fun applyChartTheme(style: Style) {
         val safety = (boat.draftM + boat.ukcMarginM).coerceIn(0.5, 9.5)
-        // Blue everywhere there is water: palest = shallower than safety, darkening with depth. Any
-        // charted water (even 0 m at MLLW) reads as water; only true drying ground (DRVAL1<0) is green.
-        val fill = PropertyFactory.fillColor(
-            Expression.step(
-                Expression.coalesce(
-                    // to-number has no default form in the Java DSL; coalesce a sentinel instead
-                    Expression.toNumber(Expression.get("DRVAL1")),
-                    Expression.literal(-999.0)
-                ),
-                Expression.color(Color.parseColor("#1b5e91")),                         // unknown == deep/background: no seam over open sea
-                Expression.stop(-100, Expression.color(Color.parseColor("#7cc47f"))),  // dries (uncovers at LW)
-                Expression.stop(0, Expression.color(Color.parseColor("#cfe6f5"))),     // < safety: shallow, palest blue
-                Expression.stop(safety, Expression.color(Color.parseColor("#8fc0e2"))),      // just safe
-                Expression.stop(safety * 2.0, Expression.color(Color.parseColor("#4a90c2"))),
-                Expression.stop(safety * 4.0, Expression.color(Color.parseColor("#1b5e91")))  // deep
-            )
-        )
-        // One DEPARE + one DRGARE (dredged channel) fill per ENC usage band. Both get the SAME
-        // depth ramp so the ship channel reads as continuous water (see charts-pipeline/make_style.py).
-        for (b in 1..6) {
-            style.getLayerAs<FillLayer>("DEPARE-b$b")?.setProperties(fill)
-            style.getLayerAs<FillLayer>("DRGARE-b$b")?.setProperties(fill)
+        appliedTheme = effectiveTheme()
+        appliedTheme.applyTo(style, safety)
+    }
+
+    /** User switched Display mode: persist and re-apply. */
+    private fun setThemeMode(mode: ThemeMode) {
+        if (mode == themeMode) return
+        themeMode = mode
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit().putString("theme_mode", mode.name).apply()
+        refreshTheme(force = true)
+    }
+
+    /** Re-evaluate the effective theme (Auto flips at dusk / dawn) and, if it changed, re-colour both
+     *  maps + reset brightness. Cheap; called on resume, on the periodic tick, and after a mode change. */
+    private fun refreshTheme(force: Boolean = false) {
+        val eff = effectiveTheme()
+        if (!force && eff == appliedTheme) return
+        appliedTheme = eff
+        loadedStyle?.let { applyChartTheme(it) }
+        secondMap?.style?.let { applyChartTheme(it) }
+        applyScreenBrightness()
+    }
+
+    /** Dim the backlight to the effective theme's level (night vision) — the single biggest
+     *  night-vision win. Day = -1 (BRIGHTNESS_OVERRIDE_NONE) hands control back to the system/user. */
+    private fun applyScreenBrightness() {
+        window.attributes = window.attributes.apply {
+            screenBrightness = effectiveTheme().palette.screenBrightness
         }
     }
 
@@ -1197,7 +1717,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      * we just log and carry on with charts-only (chartStyleJson strips the basemap layers when
      * basemapServer stays null).
      */
-    private fun startBasemapServer(basemap: File) {
+    private fun startBasemapServer(basemap: File?) {
         try {
             // Read-through cache: tiles outside the seed region are fetched from our own tile server
             // when online and persisted into basemap_cache.mbtiles, so they're there offline next time.
@@ -1262,7 +1782,9 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             for (j in jobs) if (server.cacheRemoteTile(j[0], j[1], j[2])) ok++
             runOnUiThread {
                 val note = if (capped) " (view capped at $PREFETCH_MAX_TILES — zoom in for more)" else ""
-                Toast.makeText(this, "Land map cached: $ok/${jobs.size} tiles$note", Toast.LENGTH_LONG).show()
+                val msg = if (ok == 0) "No land tiles downloaded — the land-map server isn't reachable"
+                          else "Land map cached: $ok/${jobs.size} tiles$note"
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
                 loadedStyle?.let { map?.triggerRepaint() } // nudge MapLibre to show freshly-cached tiles
             }
         }.apply { isDaemon = true }.start()
@@ -1517,7 +2039,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             })
         }
         if (set) {   // live status when re-opening on a set watch
-            val a = anchorWatch?.anchorPos(); val loc = lastLocation
+            val a = anchorWatch?.anchorPos(); val loc = freshFix()
             if (a != null && loc != null) {
                 val distM = GeoUtils.distanceNm(a, LatLng(loc.latitude, loc.longitude)) * 1852.0
                 content.addView(TextView(this).apply {
@@ -1529,14 +2051,30 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         }
         val b = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(if (set) "Anchor watch" else "Anchor").setView(content)
-        if (set) b.setPositiveButton("Raise anchor") { _, _ -> raiseAnchor() }.setNegativeButton("Close", null)
+        if (set) b.setPositiveButton("Raise anchor") { _, _ -> raiseAnchor() }
+            .setNeutralButton("Reset") { _, _ -> resetAnchor() }   // re-drop at the boat's current spot
+            .setNegativeButton("Close", null)
         else     b.setPositiveButton("Lower anchor") { _, _ -> lowerAnchor() }.setNegativeButton("Cancel", null)
         b.show()
     }
 
+    /** Move the anchor point to the boat's CURRENT position (keeping the current radius) — for when
+     *  the boat has settled to a new spot and you want the swing circle centred on where you are now.
+     *  Clears any active drag alarm since the new distance-from-drop starts at zero. */
+    private fun resetAnchor() {
+        val loc = freshFix() ?: run { Toast.makeText(this, "Waiting for GPS fix…", Toast.LENGTH_SHORT).show(); return }
+        val aw = anchorWatch ?: return
+        anchorMaxDistM = 0.0
+        aw.drop(LatLng(loc.latitude, loc.longitude), alarmRadiusM / 1852.0)
+        startAnchorService()   // re-arm the watch at the new drop point (+ current radius)
+        zoomToWatchCircle()
+        refreshAnchorUi()
+        Toast.makeText(this, "Anchor reset to current position", Toast.LENGTH_SHORT).show()
+    }
+
     /** Drop the anchor at the current fix and arm the watch. */
     private fun lowerAnchor() {
-        val loc = lastLocation
+        val loc = freshFix()
         if (loc == null) { Toast.makeText(this, "Waiting for GPS fix…", Toast.LENGTH_SHORT).show(); return }
         val aw = anchorWatch ?: return
         anchorMode = true
@@ -1544,9 +2082,56 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         anchorMaxDistM = 0.0
         aw.drop(LatLng(loc.latitude, loc.longitude), alarmRadiusM / 1852.0)
         startAnchorService()  // keep watching even if the app is minimised
+        ensureAnchorRunsWhenIdle()  // Doze would otherwise freeze the watch with the screen off
         zoomToWatchCircle()   // frame the circle we just drew
         refreshAnchorUi()
         updateAnchorButton()  // now anchored → keep the ⚓ reachable regardless of SOG
+    }
+
+    /**
+     * The anchor watch is only as reliable as the OS lets it be with the screen off. The service now
+     * holds a CPU wake lock, but on an idle device Android's Doze still freezes wake locks + GPS for
+     * any app that isn't battery-optimisation-exempt. So the first time the anchor goes down, ask the
+     * user to whitelist MyNavvy (one-time; once granted, isIgnoringBatteryOptimizations() stays true).
+     */
+    private fun ensureAnchorRunsWhenIdle() {
+        val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val exempt = pm.isIgnoringBatteryOptimizations(packageName)
+        val prefs = getSharedPreferences(STATE_PREFS, MODE_PRIVATE)
+        // Battery-opt exemption alone is NOT enough on Samsung/Xiaomi/etc.: their separate "sleeping
+        // apps" list can still kill a foreground service. So even once exempt, show the reminder once
+        // so the user does the device-specific step. Keep nagging while not exempt.
+        if (exempt && prefs.getBoolean("anchor_reliability_reminded", false)) return
+        val msg = buildString {
+            if (!exempt) append("Android is set to sleep MyNavvy when idle, which stops the drag alarm.\n\n")
+            append("So the anchor alarm keeps watching GPS with the screen off:\n\n")
+            if (!exempt) append("1. Tap Allow → set MyNavvy to \"Unrestricted\" / \"Don't optimise\".\n")
+            append(if (!exempt) "2. " else "• ")
+            append("On Samsung: Settings → Battery → Background usage limits → \"Never sleeping apps\" → " +
+                "add MyNavvy. This is a SEPARATE setting and is usually what stops the alarm.")
+        }
+        val b = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Keep the anchor alarm awake").setMessage(msg)
+        val uri = android.net.Uri.parse("package:$packageName")
+        if (!exempt) {
+            b.setPositiveButton("Allow") { _, _ ->
+                try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, uri)) }
+                catch (_: Exception) { openAppSettings() }
+            }.setNeutralButton("App settings") { _, _ -> openAppSettings() }
+        } else {
+            b.setPositiveButton("Open settings") { _, _ -> openAppSettings() }
+        }
+        b.setNegativeButton("Later", null).show()
+        prefs.edit().putBoolean("anchor_reliability_reminded", true).apply()
+    }
+
+    /** Deep-link to MyNavvy's App Info page — the gateway to Battery → "Never sleeping apps" on the
+     *  OEM skins that need it. */
+    private fun openAppSettings() {
+        try {
+            startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:$packageName")))
+        } catch (_: Exception) {}
     }
 
     /** Frame the chart so the watch circle (radius R around the boat / drop) is clearly visible —
@@ -1715,7 +2300,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         val distM = GeoUtils.distanceNm(a, boatLL) * 1852.0
         if (distM > anchorMaxDistM) anchorMaxDistM = distM
 
-        val depthNow = chartedDepthMin(loc.latitude, loc.longitude).minM?.plus(tideNowM() ?: 0.0)
+        val depthNow = actualDepthNow(loc.latitude, loc.longitude).first
         val ukcM = depthNow?.minus(boat.draftM)
         val dragging = distM > alarmRadiusM
         val grounding = ukcM != null && ukcM <= 0.0
@@ -1808,6 +2393,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         val top = ((if (lift) 92f else 8f) * resources.displayMetrics.density).toInt()
         binding.btnMenu.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = top }
         binding.infoCard.updateLayoutParams<FrameLayout.LayoutParams> { topMargin = top }
+        // Chip rides with the menu button (+9dp keeps it vertically centred on it).
+        binding.tvNmeaChip.updateLayoutParams<FrameLayout.LayoutParams> {
+            topMargin = top + (9f * resources.displayMetrics.density).toInt()
+        }
     }
 
     private fun enterNavMode() {
@@ -1877,10 +2466,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         val cog = if (loc?.hasBearing() == true) loc.bearing.toDouble() else null
         val sog = loc?.let { it.speed * 1.94384 }
 
-        // Depth under the boat, tide-corrected, coloured by under-keel clearance.
+        // Depth under the boat (live sounder or tide-corrected chart), coloured by UKC.
         var depthDisp: Double? = null; var depthColor = Color.WHITE; var depthDry = false
         if (loc != null) {
-            val actualM = chartedDepthMin(loc.latitude, loc.longitude).minM?.plus(tideNowM() ?: 0.0)
+            val actualM = actualDepthNow(loc.latitude, loc.longitude).first
             depthColor = ukcColor(actualM?.minus(boat.draftM))
             when {
                 actualM == null -> {}
@@ -1935,11 +2524,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         binding.btnDataSkip.setOnClickListener { binding.dataOverlay.visibility = View.GONE }
         binding.tvDataStatus.text = "On this device:\n${DataAssets.localSummary(this)}\n\nChecking the server…"
 
-        DataAssets.checkPending(this, force = true) { pending, total, err ->
+        DataAssets.checkState(this, force = true) { pending, _, total, err ->
             if (err != null || pending.isEmpty()) {
                 binding.tvDataStatus.text = "Couldn't reach the chart server:\n${err ?: "no assets published"}"
                 showDataAction("Retry") { reloadCharts() }
-                return@checkPending
+                return@checkState
             }
             val mb = total / 1048576.0
             binding.tvDataStatus.text = String.format(
@@ -1971,7 +2560,9 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             ne.latitude + pad, ne.longitude + pad, sw.latitude - pad, sw.longitude - pad
         )
         Toast.makeText(this, "Downloading offline weather + tide…", Toast.LENGTH_SHORT).show()
+        Log.i("MyNavvy", "offline data: requesting weather+tide over $bounds (net=${isNetworkAvailable()})")
         weatherRepo.fetch(bounds) { w, t, err ->
+            Log.i("MyNavvy", "offline data result: wind=${w?.hourCount() ?: 0}h tide=${t?.timesMs?.size ?: 0}pts err=$err")
             weather = w; tide = t
             if (w != null) {
                 selectedHour = w.nearestHourIndex(System.currentTimeMillis())
@@ -2006,7 +2597,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         unitsFt = p.units == "ft"
         binding.scaleBar.setUseFeet(unitsFt)
         // Safety-depth shading follows the boat, so repaint when the draft changes.
-        loadedStyle?.let { applySafetyShading(it) }
+        loadedStyle?.let { applyChartTheme(it) }
+        watch?.refreshFilterConfig()   // GPS glitch gate follows the boat's configured top speed
         if (anchorMode) refreshAnchorUi()
     }
 
@@ -2129,7 +2721,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         } ?: "--"
         val wh = hoursLeft(w.timesUtcMs.lastOrNull())
         val cover = wh?.let { String.format(Locale.US, " · %.0fh left", it) } ?: ""
-        binding.tvWx.text = "$whenStr · Wind $windStr · Tide $tideStr$cover"
+        // Tide is now the NEAREST CO-OPS station (multi-region) — name the station so a curve
+        // from 40 nm away is never mistaken for a local reading. Outside coverage: "no station".
+        val stn = weatherRepo.lastTideStationLabel
+        val tidePart = if (stn != null) "Tide $tideStr ($stn)" else "Tide: no station"
+        binding.tvWx.text = "$whenStr · Wind $windStr · $tidePart$cover"
 
         // Never let stale data masquerade as live.
         binding.tvWndSrc.text = if (weatherRepo.lastServedFromCache) "forecast · cached" else "forecast"
@@ -2195,17 +2791,17 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             if (tideM != null) {
                 sb.append("\nNow ").append(fmtDepthVal(fix.minM + tideM)).append(" ").append(depthUnit)
             }
+            if (fix.syn) sb.append("\n⚠ SYNTHETIC (GEBCO/NONNA)\nnot survey data")
         }
         sb.append("\ntap to dismiss")
         binding.infoCard.text = sb.toString()
         binding.infoCard.visibility = View.VISIBLE
     }
 
-    /** DEPTH = charted (MLLW) + predicted tide. Coloured by clearance under this boat's keel. */
+    /** DEPTH = live sounder when NMEA is up, else charted (MLLW) + predicted tide.
+     *  Coloured by clearance under this boat's keel. */
     private fun updateDepth(lat: Double, lon: Double) {
-        val fix = chartedDepthMin(lat, lon)
-        val tideM = tideNowM()
-        val actualM = fix.minM?.plus(tideM ?: 0.0)
+        val (actualM, src) = actualDepthNow(lat, lon)
         val ukcM = actualM?.minus(boat.draftM)
 
         binding.tvDepth.text = when {
@@ -2213,10 +2809,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             actualM <= 0.0 -> "DRY"
             else -> fmtDepthVal(actualM)
         }
-        binding.tvDepthSrc.text = buildString {
-            append(depthUnit).append(" · ").append(fix.src)
-            if (tideM != null) append(" +tide") else if (fix.minM != null) append(" (no tide)")
-        }
+        binding.tvDepthSrc.text = "$depthUnit · $src"
         binding.tvUkc.text = ukcM?.let {
             val u = if (unitsFt) it / 0.3048 else it
             String.format(Locale.US, "UKC %+.1f %s", u, depthUnit)
@@ -2233,8 +2826,26 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      * DRVAL1..DRVAL2 range. Falls back to the coarse routing grid when the boat is off-screen or
      * the chart has no depth area there.
      */
-    /** Shallowest charted depth at a point (S-57 DRVAL1, metres below MLLW), and where it came from. */
-    private data class DepthFix(val minM: Double?, val src: String)
+    /** Shallowest charted depth at a point (S-57 DRVAL1, metres below MLLW), and where it came from.
+     *  [syn] = the depth area is SYNTHETIC (GEBCO/NONNA bathymetry, not an official survey). */
+    private data class DepthFix(val minM: Double?, val src: String, val syn: Boolean = false)
+
+    /**
+     * Actual water depth under the boat (m) + a short source tag for the sublabel.
+     * The live NMEA sounder wins when fresh — it MEASURES the water column, so no tide
+     * correction applies (transducer offset unknown until configured; treated as at-surface).
+     * Otherwise charted MLLW + predicted tide, as before.
+     */
+    private fun actualDepthNow(lat: Double, lon: Double): Pair<Double?, String> {
+        watch?.nmeaDepthM()?.let { return it to "sounder live" }
+        val fix = chartedDepthMin(lat, lon)
+        val tideM = tideNowM()
+        val src = buildString {
+            append(fix.src)
+            if (tideM != null) append(" +tide") else if (fix.minM != null) append(" (no tide)")
+        }
+        return fix.minM?.plus(tideM ?: 0.0) to src
+    }
 
     private fun chartedDepthMin(lat: Double, lon: Double): DepthFix {
         val m = map ?: return DepthFix(null, "no map")
@@ -2247,7 +2858,12 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                 .filter { it.hasNonNullValueForProperty("DRVAL1") }
                 .maxByOrNull { it.getNumberProperty("INTU")?.toInt() ?: 0 }
             val d1 = f?.getNumberProperty("DRVAL1")?.toDouble()
-            if (d1 != null) return DepthFix(d1, "chart")
+            if (d1 != null) {
+                // SYN=1 marks the synthetic foreign tier (GEBCO/NONNA-derived, Mexico/Canada):
+                // real bathymetry but NOT survey-grade chart data — label the source honestly.
+                val syn = runCatching { f.getNumberProperty("SYN")?.toInt() == 1 }.getOrDefault(false)
+                return DepthFix(d1, if (syn) "syn" else "chart", syn)
+            }
         } catch (_: Exception) { /* fall through to the grid */ }
 
         val d = routingGrid?.depthAt(lat, lon) ?: return DepthFix(null, "no data")
@@ -2269,7 +2885,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         binding.tideMini.compact = true
         if (h == null) {
             binding.tvTide.text = "--"
-            binding.tvTideSrc.text = "$depthUnit MLLW"
+            // Honest label: outside CO-OPS coverage (Mexico/Canada) there IS no station — say so
+            // instead of implying a datum we don't have.
+            binding.tvTideSrc.text =
+                if (t == null && weatherRepo.lastTideStationLabel == null) "no station"
+                else "$depthUnit MLLW"
             binding.tideMini.setData(LongArray(0), DoubleArray(0))
             return
         }
@@ -2366,6 +2986,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         binding.weatherPanel.updateLayoutParams<FrameLayout.LayoutParams> {
             marginEnd = if (landscape) dp(116) else 0
         }
+        updateToolbarColumns()
         updateZoomControlsMargins()
         // Keep the zoom controls / scale bar clear of whichever bottom panel is open.
         repositionBottomOverlays()
@@ -2379,14 +3000,13 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *                             cover them at the screen edge) */
     private fun updateZoomControlsMargins() {
         val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val base = if (landscape) dp(96) else dp(120)
         val w = binding.contentArea.width; val h = binding.contentArea.height
         var endInset = dp(10)          // from the screen's right edge
         var paneBottomInset = 0        // pane bottom → screen bottom distance
         val split = mapSplit
+        val bothMaps = split?.let { isMapScreen(it.first) && isMapScreen(it.second) } == true
         if (split != null && w > 0 && h > 0) {
             val halfW = w / 2; val halfH = h / 2
-            val bothMaps = isMapScreen(split.first) && isMapScreen(split.second)
             // Pane B (right/bottom) for two live maps, else pane A (left/top) holds the only map.
             val region = when {
                 bothMaps -> if (landscape) intArrayOf(halfW, 0, halfW, h) else intArrayOf(0, halfH, w, halfH)
@@ -2395,15 +3015,25 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
             endInset = (w - (region[0] + region[2])) + dp(10)
             paneBottomInset = h - (region[1] + region[3])
         }
+        // Portrait chart+gauge: the buttons ride the chart pane's bottom edge as a HORIZONTAL row so
+        // the data sidebar can run nearly the pane's full height. Elsewhere they're a vertical stack.
+        val horizontal = chartPanePortrait() && !bothMaps
+        setZoomControlsHorizontal(horizontal)
+        val base = when {
+            horizontal -> dp(10)                 // hug the pane's bottom edge
+            landscape -> dp(96)
+            else -> dp(120)
+        }
         binding.zoomControls.updateLayoutParams<FrameLayout.LayoutParams> {
             marginEnd = endInset
             bottomMargin = paneBottomInset + base
         }
-        // The sidebar sits at the same pane edge on chart screens (base + chart-pane splits);
-        // post-layout, if the bottom-anchored stack would reach up into it, drop the buttons to
-        // just below it — but never below their pane (an opaque gauge could sit there).
+        // Vertical stack only: post-layout, if it would reach up into the (content-sized) sidebar,
+        // drop it to just below the sidebar — never below its pane. The horizontal row is already
+        // clear of the sidebar (fitSidebarToPane reserves the bottom strip for it), so skip it.
         binding.contentArea.post {
-            val sidebarAboveButtons = !navMode && binding.hudScroll.visibility == View.VISIBLE &&
+            val sidebarAboveButtons = !navMode && !horizontal &&
+                binding.hudScroll.visibility == View.VISIBLE &&
                 (mapSplit == null || (chartPaneSplit() && !bothMapsActive()))
             if (!sidebarAboveButtons) return@post
             val ch = binding.contentArea.height
@@ -2464,6 +3094,51 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  marks, anchor, depth + weather toggles). */
     private fun chartPaneSplit() = mapSplit?.first == "chart"
 
+    /** Chart pane in a PORTRAIT split → it's the short-and-wide top half, so its chrome (tool grid,
+     *  zoom row, data sidebar) needs the compact treatment instead of the full-height column layout. */
+    private fun chartPanePortrait() =
+        chartPaneSplit() && resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+
+    /** Reflow the left tool grid to 2 columns only in a portrait chart-pane split (7 stacked icons
+     *  overflow the short pane); one column everywhere else.
+     *
+     *  GridLayout.setColumnCount() throws if the new count is below a column index a child was already
+     *  auto-placed into (e.g. 2→1 on rotating a portrait split to landscape). Detach the children,
+     *  set the count on the now-empty grid, then reattach — the same Button instances keep their
+     *  click listeners, and auto-placement recomputes cleanly for the new column count. */
+    private fun updateToolbarColumns() {
+        val grid = binding.leftToolbar
+        val want = if (chartPanePortrait()) 2 else 1
+        if (grid.columnCount == want) return
+        val children = (0 until grid.childCount).map { grid.getChildAt(it) }
+        grid.removeAllViews()
+        grid.columnCount = want
+        for (c in children) {
+            // Fresh LayoutParams (UNDEFINED row/column spec) so auto-placement recomputes for the new
+            // count — reusing the old params keeps the stale column-1 index and re-throws on shrink.
+            val size = c.layoutParams
+            c.layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                width = size.width; height = size.height
+            }
+            grid.addView(c)
+        }
+    }
+
+    /** Lay the zoom/center buttons out as a horizontal row (portrait chart+gauge split, so they sit
+     *  along the chart pane's bottom edge and free the right column for a taller data sidebar) or the
+     *  normal vertical stack. Fixes the inter-button margins to match the axis. */
+    private fun setZoomControlsHorizontal(horizontal: Boolean) {
+        val zc = binding.zoomControls
+        zc.orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        val gap = dp(6)
+        for (i in 0 until zc.childCount) {
+            zc.getChildAt(i).updateLayoutParams<LinearLayout.LayoutParams> {
+                topMargin = 0; bottomMargin = 0; marginStart = 0; marginEnd = 0
+                if (i > 0) { if (horizontal) marginStart = gap else topMargin = gap }
+            }
+        }
+    }
+
     /** The transient chrome for the current screen: the chart toolbar on the chart base / a chart
      *  split pane, plus the screen's scale bar(s) — both in a two-map split, the primary bar on any
      *  other map screen, none under a covering gauge screen. */
@@ -2516,15 +3191,56 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
     /** The WatchService's always-on track directory (one CSV per UTC day). */
     private fun trackDir() = File(getExternalFilesDir(null) ?: filesDir, "tracks")
 
-    /** (Re)load the last [historyTracksN] day-tracks onto the chart, off the main thread. */
+    /** (Re)load the last [historyTracksN] PAST day-tracks (dashed) onto the chart, off the main
+     *  thread. Today is excluded — it's the live/solid trail (see [seedTodayTrail]), so it stays
+     *  "current" across a restart / screen-off instead of collapsing into the dashed history. */
     private fun reloadTrackHistory() {
         val overlay = trackHistory ?: return
         val n = historyTracksN
         val dir = trackDir()
+        val today = System.currentTimeMillis() / TrackHistory.DAY_MS
         Thread {
             val tracks = if (n <= 0) emptyList()
-                else TrackHistory.listDays(dir).take(n).map { TrackHistory.loadDay(dir, it) }
+                else TrackHistory.listDays(dir).filter { it != today && it !in hiddenTrackDays }
+                    .take(n).map { TrackHistory.loadDay(dir, it) }
             runOnUiThread { if (trackHistory === overlay) overlay.set(tracks) }
+        }.start()
+    }
+
+    // --- Per-track chart visibility ------------------------------------------
+
+    private fun loadHiddenTracks() {
+        hiddenTrackDays.clear()
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).getString("hidden_tracks", "")
+            ?.split(",")?.forEach { it.trim().toLongOrNull()?.let(hiddenTrackDays::add) }
+    }
+
+    private fun isTrackVisible(day: Long) = day !in hiddenTrackDays
+
+    /** Show/hide one day-track on the chart (today = the live trail; past days = the dashed history). */
+    private fun setTrackVisible(day: Long, visible: Boolean) {
+        if (visible) hiddenTrackDays.remove(day) else hiddenTrackDays.add(day)
+        getSharedPreferences(STATE_PREFS, MODE_PRIVATE).edit()
+            .putString("hidden_tracks", hiddenTrackDays.joinToString(",")).apply()
+        if (day == System.currentTimeMillis() / TrackHistory.DAY_MS) routeManager?.setTrailVisible(visible)
+        else reloadTrackHistory()
+    }
+
+    /** Re-apply per-track visibility after a style (re)load: the live trail follows today's checkbox;
+     *  the dashed history is filtered in [reloadTrackHistory]. */
+    private fun applyTrackVisibility() {
+        routeManager?.setTrailVisible(isTrackVisible(System.currentTimeMillis() / TrackHistory.DAY_MS))
+    }
+
+    /** Seed the live breadcrumb trail with today's already-recorded track so the current-day line is
+     *  whole after an app restart / screen-off recreate (the in-memory session trail starts empty). */
+    private fun seedTodayTrail() {
+        val rm = routeManager ?: return
+        val dir = trackDir()
+        val today = System.currentTimeMillis() / TrackHistory.DAY_MS
+        Thread {
+            val pts = TrackHistory.loadDay(dir, today).points.map { LatLng(it.lat, it.lon) }
+            runOnUiThread { if (routeManager === rm && pts.isNotEmpty()) rm.setTrail(pts) }
         }.start()
     }
 
@@ -2548,11 +3264,22 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                     .apply { setMargins(0, dp(3), 0, dp(3)) }
-                addView(TextView(this@MainActivity).apply {
-                    this.text = text; setTextColor(Color.WHITE); textSize = 14f
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(android.widget.CheckBox(this@MainActivity).apply {
+                        isChecked = isTrackVisible(day)
+                        setPadding(0, 0, dp(6), 0)
+                        contentDescription = "Show on chart"
+                        setOnCheckedChangeListener { _, checked -> setTrackVisible(day, checked) }
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        this.text = text; setTextColor(Color.WHITE); textSize = 14f
+                    })
                 })
                 addView(TextView(this@MainActivity).apply {
                     this.text = sub; setTextColor(Color.parseColor("#8FA6B4")); textSize = 11f
+                    setPadding(dp(34), 0, 0, 0)
                 })
                 addView(LinearLayout(this@MainActivity).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -2569,6 +3296,10 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
                             .setMessage("Delete the ${TrackHistory.dayTitle(day)} track?")
                             .setPositiveButton("Delete") { _, _ ->
                                 File(dir, "track-$day.csv").delete()
+                                // Today's track is the LIVE in-memory trail, not a history file — clear it
+                                // too, or it stays drawn until restart. (Recording then starts fresh.)
+                                if (day == System.currentTimeMillis() / TrackHistory.DAY_MS) routeManager?.clearTrail()
+                                hiddenTrackDays.remove(day)   // don't leave a stale hidden-entry for a gone track
                                 reloadTrackHistory(); refresh()
                             }
                             .setNegativeButton("Cancel", null).show()
@@ -2579,7 +3310,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         fun refill() {
             list.removeAllViews()
             list.addView(TextView(this).apply {
-                text = "Tracks"; setTextColor(Color.WHITE); textSize = 19f; setPadding(0, 0, 0, dp(10))
+                text = "Tracks"; setTextColor(Color.WHITE); textSize = 19f; setPadding(0, 0, 0, dp(2))
+            })
+            list.addView(TextView(this).apply {
+                text = "Tick to show on chart"; setTextColor(Color.parseColor("#8FA6B4")); textSize = 11f
+                setPadding(0, 0, 0, dp(10))
             })
             val days = TrackHistory.listDays(dir)
             if (days.isEmpty()) {
@@ -2678,10 +3413,11 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         return w.nearest(loc.latitude, loc.longitude, w.nearestHourIndex(System.currentTimeMillis()))
     }
 
-    /** Tide-corrected depth (m) and under-keel clearance (m) at the boat, either possibly null. */
+    /** Actual depth (m) and under-keel clearance (m) at the boat, either possibly null.
+     *  Live sounder when NMEA is up, else tide-corrected chart. */
     fun uiDepthUkcNow(): Pair<Double?, Double?> {
         val loc = lastLocation ?: return null to null
-        val actualM = chartedDepthMin(loc.latitude, loc.longitude).minM?.plus(tideNowM() ?: 0.0)
+        val actualM = actualDepthNow(loc.latitude, loc.longitude).first
         return actualM to actualM?.minus(boat.draftM)
     }
 
@@ -2744,9 +3480,23 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         startAndBindWatch()
     }
 
+    /** Tell the service to drop its spike-filter reference so the next fix is trusted verbatim — used
+     *  on app open and on the recenter button, so a boat "stuck" behind the jump filter (e.g. carried
+     *  to a new spot while the app was closed) snaps to its true position instead of staying frozen. */
+    private fun requestWatchResync() {
+        try {
+            ContextCompat.startForegroundService(this,
+                android.content.Intent(this, WatchService::class.java).setAction(WatchService.ACTION_RESYNC))
+        } catch (_: Throwable) {}
+    }
+
     private fun startAndBindWatch() {
         if (!hasLocationPermission()) return
-        val i = android.content.Intent(this, WatchService::class.java)
+        // On every app open/foreground, tell the (possibly already-running) service to drop its stale
+        // filter reference — otherwise, if it survived in the background while the boat was moved to a
+        // new spot, the new fix reads as an impossible boat-speed jump and is rejected, leaving the boat
+        // stuck at the old position. RESYNC = trust the next fix as ground truth.
+        val i = android.content.Intent(this, WatchService::class.java).setAction(WatchService.ACTION_RESYNC)
         try { ContextCompat.startForegroundService(this, i) }
         catch (t: Throwable) { Log.w("MyNavvy", "watch service start failed: ${t.message}") }
         if (!watchBound) try { bindService(i, watchConn, Context.BIND_AUTO_CREATE) } catch (_: Throwable) {}
@@ -2801,10 +3551,24 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
 
     /** Manual "find my boat": snap the camera to the last fix and re-engage boat-follow. Cancels any
      *  pending auto-recenter so the two don't stack. */
+    /** Colour the boat dot(s) by GPS source — applied to both the main and split-view markers. */
+    private fun applyBoatDotColor(color: String) {
+        boatMarker?.setDotColor(color)
+        boatMarker2?.setDotColor(color)
+    }
+
+    /** The boat's LIVE position: the service's freshest accepted fix, falling back to our onFix copy.
+     *  Use this for any position-consuming action (center / lower / reset) — [lastLocation] alone
+     *  freezes while the app is backgrounded, so it can be stale right after the screen comes back on. */
+    private fun freshFix(): Location? = (watch?.currentFix ?: lastLocation)?.also { lastLocation = it }
+
     private fun centerOnBoat() {
         val m = map ?: return
         recenterHandler.removeCallbacks(recenterRunnable)
-        val loc = lastLocation
+        // Unstick the position too: if the jump filter is holding an old spot, trust the next fix so
+        // the boat snaps to where it really is. TRACKING mode (set below) then follows it there.
+        requestWatchResync()
+        val loc = freshFix()
         if (loc == null) {
             Toast.makeText(this, "No GPS fix yet", Toast.LENGTH_SHORT).show()
             return
@@ -2853,7 +3617,8 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
      *  here — the spike/stale/precision filtering, COG derivation and persistent track recording all
      *  live in the service now, so the map and the background watch never diverge. Runs on the main
      *  thread (the service posts it there). [teleported] = a confirmed large jump → clear the trail. */
-    override fun onFix(location: Location, teleported: Boolean) {
+    override fun onFix(location: Location, teleported: Boolean, makingWay: Boolean) {
+        lastOnFixMs = android.os.SystemClock.elapsedRealtime()
         lastLocation = location
         cogDeg = if (location.hasBearing()) location.bearing.toDouble() else null
         cogDeg?.let { cogCompass.setHeading(it.toFloat()) }
@@ -2869,10 +3634,14 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         map?.let { m ->
             boatMarker?.update(location.latitude, location.longitude, cogDeg, metersPerPixelNow(m))
         }
+        // Dot colour reflects the live source: green = NMEA (boat instruments), blue = phone GPS.
+        applyBoatDotColor(if (location.provider == WatchService.NMEA_PROVIDER) DOT_NMEA else DOT_PHONE_GPS)
         updateTrip(location)
         updateAnchorButton()   // safety: grey the ⚓ out while making way (unless already anchored)
         // Session breadcrumb trail (visual) — the persistent 6-month track is recorded in the service.
-        routeManager?.addTrailPoint(location.latitude, location.longitude)
+        // Only extend it while making way (matches the service's track gating), so a stationary boat's
+        // drift / indoor network-jitter doesn't scribble a fake trail.
+        if (makingWay) routeManager?.addTrailPoint(location.latitude, location.longitude)
 
         updateHud()
         if (anchorMode) refreshAnchorUi()
@@ -2881,6 +3650,14 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         if (bothMapsActive() &&
             android.os.SystemClock.elapsedRealtime() - secondMapGestureAt > MAP_RECENTER_MS)
             updateSecondMapCamera()
+
+        // Region auto-switch: sailed off the active chart set into another installed region
+        // (debounced in Regions so one stray fix can't flip the charts). recreate() is the same
+        // proven reload path the post-download flow uses.
+        Regions.considerAutoSwitch(this, activeRegion, location.latitude, location.longitude)?.let { r ->
+            Toast.makeText(this, "Switching charts to ${r.name}", Toast.LENGTH_LONG).show()
+            recreate()
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -2904,9 +3681,18 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         binding.mapView.onResume()
         binding.mapView2.onResume()
         applyBoatProfile()
+        applyScreenBrightness()
+        refreshTheme()          // catch a day↔night flip that happened while backgrounded (Auto)
         if (binding.weatherPanel.visibility == View.VISIBLE) startWxTicker()
+        chipHandler.post(chipTicker)
+        // Once per launch: quietly check for a newer APK and offer it (replaces Obtainium).
+        if (!appUpdateChecked) { appUpdateChecked = true; checkForAppUpdate(silent = true) }
     }
-    override fun onPause() { stopWxTicker(); binding.mapView.onPause(); binding.mapView2.onPause(); super.onPause() }
+    override fun onPause() {
+        stopWxTicker()
+        chipHandler.removeCallbacks(chipTicker)
+        binding.mapView.onPause(); binding.mapView2.onPause(); super.onPause()
+    }
     override fun onStop() { saveState(); unbindWatch(); binding.mapView.onStop(); binding.mapView2.onStop(); super.onStop() }
 
     /** Unbind from the watch service (it keeps running as a started foreground service). */
@@ -2923,6 +3709,7 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
 
     override fun onDestroy() {
         stopAlarm()
+        nmeaUiScope.cancel()
         unbindWatch()
         // Fully closing and not anchored → stop the background watch (frees GPS). Keep it running while
         // anchored so the drag alarm survives even a full app close.
@@ -3012,6 +3799,12 @@ class MainActivity : AppCompatActivity(), WatchService.Fixes {
         private const val BASEMAP_REMOTE = "https://basemap.darkclad.org/tiles/{z}/{x}/{y}.pbf"
         private const val PREFETCH_MAX_TILES = 3000
         private const val REQ_LOCATION = 1001
+        // Boat-dot colour by GPS source. Grey until a fix / after a drought, blue on phone GPS, green on NMEA.
+        private const val DOT_NO_SIGNAL = "#9E9E9E"
+        private const val DOT_PHONE_GPS = "#1565C0"
+        private const val DOT_NMEA = "#2E7D32"
+        /** No accepted fix for this long → treat the boat dot as "no GPS signal" (grey). */
+        private const val GPS_STALE_MS = 6_000L
         private const val REQ_NOTIF = 1002
     }
 }

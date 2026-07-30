@@ -32,11 +32,14 @@ Run
   python boatsim.py                 # interactive helm GUI
   python boatsim.py --demo 20       # headless: drive a 20 s S-turn (pipeline test)
   python boatsim.py --list          # list adb devices and exit
+  python boatsim.py --nmea-server   # + serve NMEA 0183 on TCP :10110 (RMC/VTG/DPT/VHW)
+                                    #   — bench stand-in for the GO7 for MyNavvy's NmeaClient
 """
 
 import argparse
 import math
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -216,19 +219,177 @@ class Transmitter:
         return self.last_ok
 
 
+# --- NMEA 0183 over TCP (bench stand-in for the GO7 GoFree feed) --------------
+
+def _nmea_checksum(body):
+    """XOR of every char between '$' and '*', as two uppercase hex digits."""
+    cs = 0
+    for ch in body:
+        cs ^= ord(ch)
+    return f"{cs:02X}"
+
+
+def _nmea(body):
+    return f"${body}*{_nmea_checksum(body)}\r\n"
+
+
+def _nmea_latlon(lat, lon):
+    """(lat, lon) -> ddmm.mmmm,N/S, dddmm.mmmm,E/W fields."""
+    la, lo = abs(lat), abs(lon)
+    lad, lod = int(la), int(lo)
+    return (f"{lad:02d}{(la - lad) * 60:07.4f}", "N" if lat >= 0 else "S",
+            f"{lod:03d}{(lo - lod) * 60:07.4f}", "E" if lon >= 0 else "W")
+
+
+class NmeaServer:
+    """Serves the sim boat as NMEA 0183 over TCP — a bench stand-in for the GO7.
+
+    MyNavvy's NmeaClient points here instead of the GO7 AP: PC_IP:10110 from a
+    real device on the LAN, or 10.0.2.2:10110 from the Android emulator. Emits
+    RMC + VTG + DPT + VHW at 1 Hz to every connected client (same minimum set the
+    GO7/ESP32 sources carry, so the whole client→parser→authority chain is
+    exercised unchanged). Depth comes from the routing grid where charted.
+    """
+
+    GOFREE_GROUP = ("239.2.1.1", 2052)      # Navico GoFree announce multicast
+
+    def __init__(self, port=10110):
+        self.port = port
+        self.boat = None                    # set via attach() once the sim boat exists
+        self.clients = []                   # connected sockets
+        self.lock = threading.Lock()
+        self.err = ""
+        self.srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.srv.bind(("0.0.0.0", port))
+        self.srv.listen(4)
+        self._mask = None                   # lazy LandMask for charted depth
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+        threading.Thread(target=self._tx_loop, daemon=True).start()
+        threading.Thread(target=self._announce_loop, daemon=True).start()
+
+    def attach(self, boat):
+        self.boat = boat
+
+    def client_count(self):
+        with self.lock:
+            return len(self.clients)
+
+    def _accept_loop(self):
+        while True:
+            try:
+                c, addr = self.srv.accept()
+                c.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                with self.lock:
+                    self.clients.append(c)
+                print(f"[nmea] client connected: {addr[0]}:{addr[1]}")
+            except OSError:
+                return
+
+    def _depth_m(self):
+        """Charted depth under the boat, else a plausible deep-water constant."""
+        if self._mask is None:
+            self._mask = LandMask()
+        if self._mask.ok and self.boat:
+            status, depth = self._mask.classify(self.boat.lat, self.boat.lon)
+            if status == "water" and depth is not None:
+                return depth
+        return 30.0
+
+    def _sentences(self):
+        b = self.boat
+        t = time.gmtime()
+        hms = f"{t.tm_hour:02d}{t.tm_min:02d}{t.tm_sec:02d}.00"
+        dmy = f"{t.tm_mday:02d}{t.tm_mon:02d}{t.tm_year % 100:02d}"
+        lat_f, ns, lon_f, ew = _nmea_latlon(b.lat, b.lon)
+        return (
+            _nmea(f"GPRMC,{hms},A,{lat_f},{ns},{lon_f},{ew},"
+                  f"{b.sog:.1f},{b.cog:.1f},{dmy},,,A")
+            + _nmea(f"GPVTG,{b.cog:.1f},T,,M,{b.sog:.1f},N,{b.sog * 1.852:.1f},K,A")
+            + _nmea(f"SDDPT,{self._depth_m():.1f},0.0")
+            + _nmea(f"VWVHW,{b.heading:.1f},T,,M,{abs(b.speed):.1f},N,"
+                    f"{abs(b.speed) * 1.852:.1f},K")
+        )
+
+    def _announce_loop(self):
+        """GoFree-style service announce so MyNavvy's auto-discovery finds us without an IP.
+
+        Sent every 5 s to 239.2.1.1:2052, once per local IPv4 interface (the tablet on the
+        PC's Mobile Hotspot lives on 192.168.137.x — a different interface than the LAN),
+        with the matching per-interface IP in the JSON so the client connects back right.
+        """
+        import json as _json
+        while True:
+            for ip in self._local_ipv4s():
+                try:
+                    payload = _json.dumps({
+                        "Name": "boatsim", "IP": ip, "Model": "MyNavvy boatsim",
+                        "Services": [{"Service": "nmea-0183", "Version": "1", "Port": self.port}],
+                    }).encode("utf-8")
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+                    s.sendto(payload, self.GOFREE_GROUP)
+                    s.close()
+                except OSError:
+                    pass
+            time.sleep(5.0)
+
+    @staticmethod
+    def _local_ipv4s():
+        """Every non-loopback IPv4 address of this machine (LAN, hotspot, VPN, …)."""
+        ips = set()
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                ip = info[4][0]
+                if not ip.startswith("127."):
+                    ips.add(ip)
+        except OSError:
+            pass
+        return sorted(ips)
+
+    def _tx_loop(self):
+        while True:
+            time.sleep(1.0)
+            if self.boat is None:
+                continue
+            data = self._sentences().encode("ascii")
+            with self.lock:
+                dead = []
+                for c in self.clients:
+                    try:
+                        c.sendall(data)
+                    except OSError:
+                        dead.append(c)
+                for c in dead:
+                    self.clients.remove(c)
+                    try:
+                        c.close()
+                    except OSError:
+                        pass
+                    print("[nmea] client dropped")
+
+
 # --- Headless demo (pipeline self-test) --------------------------------------
 
-def run_demo(seconds, tx):
+def run_demo(seconds, tx, nmea=None):
     devs = tx.devices()
     if not devs:
-        print("No adb device. Start the emulator (or plug the tablet) first.")
-        return 1
-    tx.serial = tx.serial or devs[0]
-    print(f"Driving {tx.serial}: {seconds}s S-turn at 6 kn from {DEFAULT_PRESET}")
+        if nmea is None:
+            print("No adb device. Start the emulator (or plug the tablet) first.")
+            return 1
+        print("No adb device — NMEA-only demo (no SIM_FIX broadcasts).")
+        tx = None
+    if tx:
+        tx.serial = tx.serial or devs[0]
+    print(f"Driving {tx.serial if tx else 'nmea clients'}: "
+          f"{seconds}s S-turn at 6 kn from {DEFAULT_PRESET}")
     lat, lon = PRESETS[DEFAULT_PRESET]
     b = Boat(lat, lon)
     b.heading = 0.0
     b.ordered_speed = 6.0
+    if nmea:
+        nmea.attach(b)
     dt = 0.1
     t = 0.0
     last_tx = -1.0
@@ -237,9 +398,12 @@ def run_demo(seconds, tx):
         b.rudder_target = 30.0 if t < seconds / 3 else (-30.0 if t < 2 * seconds / 3 else 0.0)
         b.step(dt)
         if t - last_tx >= 1.0:
-            tx.send(b.lat, b.lon, b.sog, b.cog)
-            print(f"  t={t:4.1f}s  {b.lat:.5f},{b.lon:.5f}  SOG {b.sog:4.1f}  COG {b.cog:5.1f}  "
-                  f"{'ok' if tx.last_ok else 'ERR ' + tx.last_err}")
+            if tx:
+                tx.send(b.lat, b.lon, b.sog, b.cog)
+                ok = "ok" if tx.last_ok else "ERR " + tx.last_err
+            else:
+                ok = f"nmea x{nmea.client_count()}"
+            print(f"  t={t:4.1f}s  {b.lat:.5f},{b.lon:.5f}  SOG {b.sog:4.1f}  COG {b.cog:5.1f}  {ok}")
             last_tx = t
         time.sleep(dt)
         t += dt
@@ -308,7 +472,7 @@ class LandMask:
         return ("water", (v - 1) / 253.0 * self.dmax)
 
 
-def run_gui(tx, auto_close_ms=None):
+def run_gui(tx, auto_close_ms=None, nmea=None):
     import tkinter as tk
     from tkinter import ttk, messagebox
     try:
@@ -338,6 +502,8 @@ def run_gui(tx, auto_close_ms=None):
     lat, lon = PRESETS[DEFAULT_PRESET]
     boat = Boat(lat, lon)
     boat.heading = 0.0
+    if nmea:
+        nmea.attach(boat)
 
     state = {
         "running": True,          # transmitting?
@@ -755,14 +921,15 @@ def run_gui(tx, auto_close_ms=None):
 
         # status
         ser = tx.serial or "?"
+        nm = f"   · nmea:{nmea.port} x{nmea.client_count()}" if nmea else ""
         if not state["running"]:
-            status.configure(text=f"● TX paused   — {ser}", fg=DIM)
+            status.configure(text=f"● TX paused   — {ser}{nm}", fg=DIM)
         elif tx.last_ok:
-            status.configure(text=f"● streaming → {PACKAGE} @ {state['tx_hz']:g} Hz   — {ser}", fg=OK)
+            status.configure(text=f"● streaming → {PACKAGE} @ {state['tx_hz']:g} Hz   — {ser}{nm}", fg=OK)
         elif tx.last_ok is False:
-            status.configure(text=f"● send error: {tx.last_err}   — {ser}", fg=BAD)
+            status.configure(text=f"● send error: {tx.last_err}   — {ser}{nm}", fg=BAD)
         else:
-            status.configure(text=f"● connecting… — {ser}", fg=DIM)
+            status.configure(text=f"● connecting… — {ser}{nm}", fg=DIM)
 
         root.after(50, tick)
 
@@ -826,9 +993,22 @@ def main():
                     help="launch the GUI and auto-close after N seconds (self-test)")
     ap.add_argument("--serial", help="target a specific adb device serial")
     ap.add_argument("--adb", default=ADB, help="path to adb")
+    ap.add_argument("--nmea-server", nargs="?", const=10110, type=int, metavar="PORT",
+                    help="also serve NMEA 0183 over TCP (RMC/VTG/DPT/VHW @ 1 Hz, "
+                         "default port 10110) — bench stand-in for the GO7 GoFree feed")
     args = ap.parse_args()
 
     tx = Transmitter(adb=args.adb, serial=args.serial)
+
+    nmea = None
+    if args.nmea_server:
+        try:
+            nmea = NmeaServer(args.nmea_server)
+            print(f"[nmea] serving NMEA 0183 on 0.0.0.0:{nmea.port} "
+                  f"(emulator: 10.0.2.2:{nmea.port})")
+        except OSError as e:
+            print(f"[nmea] cannot serve on :{args.nmea_server}: {e}")
+            return 1
 
     if args.list:
         devs = tx.devices()
@@ -836,11 +1016,11 @@ def main():
         print("devices:", devs or "(none)")
         return 0
     if args.demo:
-        return run_demo(args.demo, tx)
+        return run_demo(args.demo, tx, nmea=nmea)
     if args.smoke:
-        run_gui(tx, auto_close_ms=args.smoke * 1000)
+        run_gui(tx, auto_close_ms=args.smoke * 1000, nmea=nmea)
         return 0
-    run_gui(tx)
+    run_gui(tx, nmea=nmea)
     return 0
 
 

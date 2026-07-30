@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Tabbed config: a fixed title + tab bar, then ONE scrolling section at a time. The three
+     section containers (secDisplay/secBoat/secData) are toggled in MainActivity.showConfigDialog;
+     the dialog window height is bounded there so the ScrollView actually scrolls on short screens. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -13,122 +16,161 @@
         android:textColor="#FFFFFF"
         android:textSize="19sp" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="Propulsion mode"
-        android:textColor="#9fb3c0"
-        android:textSize="12sp" />
-
+    <!-- Tab bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
+        android:layout_marginTop="12dp"
         android:orientation="horizontal">
-        <Button android:id="@+id/btnModeSail" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Sail" />
-        <Button android:id="@+id/btnModeMotor" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Motor" />
-        <Button android:id="@+id/btnModeMotorSail" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1.3" android:minWidth="0dp" android:textSize="12sp" android:text="Mtr+Sail" />
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="Units"
-        android:textColor="#9fb3c0"
-        android:textSize="12sp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Depth &amp; tide only — speed and distance stay in knots / nm"
-        android:textColor="#6b7d89"
-        android:textSize="10sp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal">
-        <Button android:id="@+id/btnUnitsMetric" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Metric (m)" />
-        <Button android:id="@+id/btnUnitsImperial" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Imperial (ft)" />
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="Default range"
-        android:textColor="#9fb3c0"
-        android:textSize="12sp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Chart width the map opens at, and the center-on-boat range"
-        android:textColor="#6b7d89"
-        android:textSize="10sp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <Button android:id="@+id/btnRangeDown" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="–" />
-        <TextView android:id="@+id/tvRangeValue" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1.6" android:gravity="center" android:textColor="#FFFFFF"
-            android:textSize="16sp" android:fontFamily="monospace" android:text="1.0 nm" />
-        <Button android:id="@+id/btnRangeUp" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
-    </LinearLayout>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:text="History tracks"
-        android:textColor="#9fb3c0"
-        android:textSize="12sp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Recorded day-tracks drawn on the chart (dashed lines)"
-        android:textColor="#6b7d89"
-        android:textSize="10sp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <Button android:id="@+id/btnHistDown" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="–" />
-        <TextView android:id="@+id/tvHistValue" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1.6" android:gravity="center" android:textColor="#FFFFFF"
-            android:textSize="16sp" android:fontFamily="monospace" android:text="5" />
-        <Button android:id="@+id/btnHistUp" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
+        <Button android:id="@+id/btnTabDisplay" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="13sp" android:text="Display" />
+        <Button android:id="@+id/btnTabBoat" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="13sp" android:text="Boat" />
+        <Button android:id="@+id/btnTabData" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="13sp" android:text="Data" />
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:layout_marginVertical="14dp" android:background="#33ffffff" />
+        android:layout_marginTop="8dp" android:background="#33ffffff" />
 
-    <Button android:id="@+id/btnCfgBoat" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="Boat configuration" />
-    <Button android:id="@+id/btnCfgOffline" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="6dp" android:text="Offline data — pre-download" />
-    <Button android:id="@+id/btnCfgLandMap" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="6dp" android:text="Download land map (this view)" />
-    <Button android:id="@+id/btnCfgReload" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:layout_marginTop="6dp" android:text="Reload charts" />
+    <ScrollView
+        android:id="@+id/cfgScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:scrollbars="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ===== DISPLAY ===== -->
+            <LinearLayout android:id="@+id/secDisplay"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Theme" android:textColor="#9fb3c0" android:textSize="12sp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Auto follows sunrise/sunset. Night dims the screen and darkens the chart for night vision."
+                    android:textColor="#6b7d89" android:textSize="10sp" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:orientation="horizontal">
+                    <Button android:id="@+id/btnThemeAuto" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Auto" />
+                    <Button android:id="@+id/btnThemeDay" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Day" />
+                    <Button android:id="@+id/btnThemeNight" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Night" />
+                    <Button android:id="@+id/btnThemeNightRed" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.3" android:minWidth="0dp" android:textSize="12sp" android:text="Night red" />
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:text="Units" android:textColor="#9fb3c0" android:textSize="12sp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Depth &amp; tide only — speed and distance stay in knots / nm"
+                    android:textColor="#6b7d89" android:textSize="10sp" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:orientation="horizontal">
+                    <Button android:id="@+id/btnUnitsMetric" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Metric (m)" />
+                    <Button android:id="@+id/btnUnitsImperial" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Imperial (ft)" />
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:text="Default range" android:textColor="#9fb3c0" android:textSize="12sp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Chart width the map opens at, and the center-on-boat range"
+                    android:textColor="#6b7d89" android:textSize="10sp" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:orientation="horizontal" android:gravity="center_vertical">
+                    <Button android:id="@+id/btnRangeDown" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="–" />
+                    <TextView android:id="@+id/tvRangeValue" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.6" android:gravity="center" android:textColor="#FFFFFF"
+                        android:textSize="16sp" android:fontFamily="monospace" android:text="1.0 nm" />
+                    <Button android:id="@+id/btnRangeUp" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:text="History tracks" android:textColor="#9fb3c0" android:textSize="12sp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Recorded day-tracks drawn on the chart (dashed lines)"
+                    android:textColor="#6b7d89" android:textSize="10sp" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:orientation="horizontal" android:gravity="center_vertical">
+                    <Button android:id="@+id/btnHistDown" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="–" />
+                    <TextView android:id="@+id/tvHistValue" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.6" android:gravity="center" android:textColor="#FFFFFF"
+                        android:textSize="16sp" android:fontFamily="monospace" android:text="5" />
+                    <Button android:id="@+id/btnHistUp" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ===== BOAT ===== -->
+            <LinearLayout android:id="@+id/secBoat"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Propulsion mode" android:textColor="#9fb3c0" android:textSize="12sp" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:orientation="horizontal">
+                    <Button android:id="@+id/btnModeSail" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Sail" />
+                    <Button android:id="@+id/btnModeMotor" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Motor" />
+                    <Button android:id="@+id/btnModeMotorSail" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.3" android:minWidth="0dp" android:textSize="12sp" android:text="Mtr+Sail" />
+                </LinearLayout>
+
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp" android:text="Top speed" android:textColor="#9fb3c0" android:textSize="12sp" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="GPS filter drops any jump faster than this (a boat can't teleport)"
+                    android:textColor="#6b7d89" android:textSize="10sp" />
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:orientation="horizontal" android:gravity="center_vertical">
+                    <Button android:id="@+id/btnMaxSpeedDown" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="–" />
+                    <TextView android:id="@+id/tvMaxSpeedValue" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1.6" android:gravity="center" android:textColor="#FFFFFF"
+                        android:textSize="16sp" android:fontFamily="monospace" android:text="20 kn" />
+                    <Button android:id="@+id/btnMaxSpeedUp" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:minWidth="0dp" android:textSize="18sp" android:text="+" />
+                </LinearLayout>
+
+                <Button android:id="@+id/btnCfgBoat" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp" android:text="Boat configuration" />
+            </LinearLayout>
+
+            <!-- ===== DATA ===== -->
+            <LinearLayout android:id="@+id/secData"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone">
+
+                <Button android:id="@+id/btnCfgRegion" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="Charts region" />
+                <Button android:id="@+id/btnCfgNmea" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:text="Data source — GPS / boat NMEA" />
+                <Button android:id="@+id/btnCfgOffline" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:text="Download weather data (this region)" />
+                <Button android:id="@+id/btnCfgLandMap" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:text="Download land map (this view)" />
+                <Button android:id="@+id/btnCfgReload" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:text="Reload charts" />
+                <Button android:id="@+id/btnCfgUpdate" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:text="Check for app updates" />
+                <Button android:id="@+id/btnCfgShareLogs" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp" android:text="Share diagnostics (logs)" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
 </LinearLayout>

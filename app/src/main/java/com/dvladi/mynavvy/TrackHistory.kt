@@ -120,6 +120,7 @@ object TrackHistory {
      *  loads, BEFORE RouteManager, so history draws beneath the live trail/route. */
     class Overlay(style: org.maplibre.android.maps.Style) {
         private val source = GeoJsonSource(SRC)
+        private val mapStyle = style
 
         init {
             style.addSource(source)
@@ -154,6 +155,13 @@ object TrackHistory {
                 }
             }
             source.setGeoJson(FeatureCollection.fromFeatures(feats))
+        }
+
+        /** Show/hide the dashed history lines + their date labels (data is kept, only visibility changes). */
+        fun setVisible(visible: Boolean) {
+            val v = if (visible) Property.VISIBLE else Property.NONE
+            mapStyle.getLayer(LYR_LINE)?.setProperties(PropertyFactory.visibility(v))
+            mapStyle.getLayer(LYR_LABEL)?.setProperties(PropertyFactory.visibility(v))
         }
 
         companion object {

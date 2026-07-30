@@ -150,6 +150,22 @@ style = {
 
 out = sys.argv[1] if len(sys.argv) > 1 else \
     "/mnt/d/Work/Programming/Android/MyNavvy/app/src/main/assets/style.json"
+
+# GUARD: the shipped style.json has since been hand-extended (OSM basemap source + bm-* layers,
+# glyphs, SOUNDG/DEPCNT label symbols, DATLIM). This generator does NOT know about those — writing
+# over them would silently strip the land basemap and labels from the app. Refuse unless forced.
+import os
+if os.path.exists(out):
+    try:
+        existing = json.load(open(out))
+        curated = any(l.get("id", "").startswith("bm-") or l.get("id") == "DATLIM"
+                      for l in existing.get("layers", []))
+    except Exception:
+        curated = False
+    if curated and "--force" not in sys.argv:
+        sys.exit(f"REFUSING to overwrite {out}: it contains hand-curated layers (bm-*/DATLIM) "
+                 f"this generator would destroy. Pass --force if you really mean it.")
+
 with open(out, "w") as f:
     json.dump(style, f, indent=2)
 print(f"wrote {out}: {len(layers)} layers ({len(BANDS)} bands x fills, band-scoped lines)")

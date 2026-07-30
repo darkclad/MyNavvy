@@ -12,13 +12,13 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 
 /**
- * First-run downloader for the app's DATA artifacts (offline charts + routing mask).
+ * Downloader for the app's DATA artifacts — now REGION packages (manifest v2).
  *
- * The APK ships only code; `charts.mbtiles` and `routing_grid.*` are published next to it by
- * `publish-mynavvy-data.ps1` and fetched into the app's external files dir on first launch, so a
- * remote tablet needs no adb. Each asset is verified against the SHA-256 in the manifest before it
- * is put in place, and a `<name>.sha` marker records what we have (so we never re-hash a 280 MB
- * file just to decide whether it is current).
+ * The APK ships only code; chart regions are published by `publish-mynavvy-data.ps1` under
+ * `.../mynavvy/data/regions/<id>/` and listed in `data.json` (`manifestVersion: 2`, `regions[]`).
+ * Each installed region lives in `<external files>/regions/<id>/` (see [Regions]); every asset is
+ * verified against the manifest SHA-256 before it is put in place, and a `<name>.sha` marker
+ * records what we have (so a 700 MB file is never re-hashed just to decide it's current).
  *
  * APK updates themselves are handled externally by Obtainium, not by this class.
  */
@@ -28,13 +28,13 @@ object DataAssets {
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 60_000
 
-    /** Files the app needs before charts/routing work. Absence blocks the map (shows the loader). */
-    private val REQUIRED = listOf("charts.mbtiles", "routing_grid.png", "routing_grid.json")
+    /** Per-region files the region needs before its charts/routing work. */
+    private val REQUIRED = listOf("region.json", "charts.mbtiles", "routing_grid.png", "routing_grid.json")
 
     /**
-     * Nice-to-have downloads that must NEVER block first run. `basemap.mbtiles` is the OSM land
-     * "home-region seed": present → land detail (roads/towns/marinas) offline from launch; absent →
-     * charts still work and the basemap fills in online via [MbTilesServer]'s read-through cache.
+     * Nice-to-have downloads that must NEVER block a region install. `basemap.mbtiles` is the OSM
+     * land seed: present → land detail offline from launch; absent → charts still work and the
+     * basemap fills in online via [MbTilesServer]'s read-through cache.
      */
     private val OPTIONAL = listOf("basemap.mbtiles")
 
@@ -46,68 +46,92 @@ object DataAssets {
 
     data class Asset(val name: String, val url: String, val sha256: String, val size: Long)
 
+    /** A published region as described by the manifest (not necessarily installed). */
+    data class ManifestRegion(
+        val id: String,
+        val name: String,
+        val sizeBytes: Long,
+        val assets: List<Asset>
+    )
+
+    /** One outstanding download: an asset belonging to a region. */
+    data class Pending(val regionId: String, val regionName: String, val asset: Asset)
+
     fun dir(ctx: Context): File = ctx.getExternalFilesDir(null) ?: ctx.filesDir
 
-    /** True when any required data file is absent — i.e. the app can't show charts yet. */
-    fun dataMissing(ctx: Context): Boolean = REQUIRED.any { !File(dir(ctx), it).exists() }
+    /** True when no usable region is installed — i.e. the app can't show charts yet. */
+    fun dataMissing(ctx: Context): Boolean = Regions.installed(ctx).isEmpty()
 
     /**
-     * Fetch the manifest and report which assets still need downloading (missing, or a sha that
-     * differs from our marker) plus their total size. Callback runs on the main thread.
-     *
-     * [force] ignores the local markers and returns every asset — for an explicit "reload charts",
-     * which is the only cure when a file is present but corrupt (a truncated download, a half-copied
-     * push) and therefore still looks "current".
+     * Fetch the manifest once and report BOTH: outstanding downloads for regions already installed
+     * (missing files, or a sha drift = the pipeline republished), AND regions available to install.
+     * Callback runs on the main thread. [force] ignores local markers for installed regions — the
+     * "reload charts" cure for a present-but-corrupt file.
      */
-    fun checkPending(
+    fun checkState(
         ctx: Context,
         force: Boolean = false,
-        cb: (pending: List<Asset>, totalBytes: Long, error: String?) -> Unit
+        cb: (pending: List<Pending>, available: List<ManifestRegion>, pendingBytes: Long, error: String?) -> Unit
     ) {
         exec.execute {
             try {
-                val all = fetchManifest()
-                val pending = if (force) all else all.filter { !isCurrent(ctx, it) }
-                val total = pending.sumOf { it.size }
-                main.post { cb(pending, total, null) }
+                val manifest = fetchManifest()
+                val installedIds = Regions.installed(ctx).map { it.id }.toSet()
+                val pending = ArrayList<Pending>()
+                for (r in manifest) {
+                    if (r.id !in installedIds) continue
+                    for (a in r.assets) {
+                        if (force || !isCurrent(ctx, r.id, a)) pending.add(Pending(r.id, r.name, a))
+                    }
+                }
+                val available = manifest.filter { it.id !in installedIds }
+                val total = pending.sumOf { it.asset.size }
+                main.post { cb(pending, available, total, null) }
             } catch (t: Throwable) {
                 Log.w(TAG, "manifest fetch failed: ${t.message}")
-                main.post { cb(emptyList(), 0L, t.message ?: "failed") }
+                main.post { cb(emptyList(), emptyList(), 0L, t.message ?: "failed") }
             }
         }
     }
 
+    /** Full install of one manifest region, as a Pending list for [download]. */
+    fun regionDownloads(r: ManifestRegion): List<Pending> = r.assets.map { Pending(r.id, r.name, it) }
+
     /** What we currently hold on disk, for the reload screen. */
     fun localSummary(ctx: Context): String {
-        val d = dir(ctx)
-        return ALLOWED.joinToString("\n") { name ->
-            val f = File(d, name)
-            when {
-                f.exists() -> String.format("%s — %.1f MB", name, f.length() / 1048576.0)
-                name in OPTIONAL -> "$name — optional, not downloaded"
-                else -> "$name — missing"
+        val regions = Regions.installed(ctx)
+        if (regions.isEmpty()) return "No chart regions installed"
+        return regions.joinToString("\n\n") { r ->
+            val files = ALLOWED.mapNotNull { name ->
+                val f = File(r.dir, name)
+                when {
+                    f.exists() -> String.format("  %s — %.1f MB", name, f.length() / 1048576.0)
+                    name in OPTIONAL -> null
+                    else -> "  $name — missing"
+                }
             }
+            "${r.name} (${r.id})\n" + files.joinToString("\n")
         }
     }
 
     /**
-     * Download the given assets sequentially. [onProgress] gets (assetName, bytesDoneOverall,
-     * totalOverall); [onDone] gets (success, message). Both run on the main thread.
+     * Download the given assets sequentially into their region dirs. [onProgress] gets
+     * (assetName, bytesDoneOverall, totalOverall); [onDone] gets (success, message). Main thread.
      */
     fun download(
         ctx: Context,
-        assets: List<Asset>,
+        items: List<Pending>,
         onProgress: (String, Long, Long) -> Unit,
         onDone: (Boolean, String) -> Unit
     ) {
         exec.execute {
-            val total = assets.sumOf { it.size }
+            val total = items.sumOf { it.asset.size }
             var done = 0L
             try {
-                for (a in assets) {
+                for (p in items) {
                     val base = done
-                    fetchOne(ctx, a) { got -> main.post { onProgress(a.name, base + got, total) } }
-                    done += a.size
+                    fetchOne(ctx, p) { got -> main.post { onProgress("${p.regionName}: ${p.asset.name}", base + got, total) } }
+                    done += p.asset.size
                 }
                 main.post { onDone(true, "ok") }
             } catch (t: Throwable) {
@@ -120,40 +144,54 @@ object DataAssets {
 
     // --- internals ----------------------------------------------------------
 
-    private fun isCurrent(ctx: Context, a: Asset): Boolean {
-        val f = File(dir(ctx), a.name)
+    private fun isCurrent(ctx: Context, regionId: String, a: Asset): Boolean {
+        val d = Regions.dirFor(ctx, regionId)
+        val f = File(d, a.name)
         if (!f.exists()) return false
         // A marker we can't read (missing, or written by adb so owned by another uid -> EACCES)
         // just means "unknown" -> treat as not-current and re-download. Never let it throw and
         // abort the whole manifest check.
         return runCatching {
-            File(dir(ctx), a.name + ".sha").takeIf { it.exists() }
+            File(d, a.name + ".sha").takeIf { it.exists() }
                 ?.readText()?.trim()?.equals(a.sha256, ignoreCase = true) == true
         }.getOrDefault(false)
     }
 
-    private fun fetchManifest(): List<Asset> {
+    private fun fetchManifest(): List<ManifestRegion> {
         val j = JSONObject(httpGetText(MANIFEST_URL))
         val pkg = j.optString("package")
         if (pkg != BuildConfig.APPLICATION_ID) throw IllegalStateException("manifest package mismatch: $pkg")
-        val arr = j.getJSONArray("assets")
-        val out = ArrayList<Asset>(arr.length())
-        for (i in 0 until arr.length()) {
-            val o = arr.getJSONObject(i)
-            val sha = o.getString("sha256").lowercase()
-            if (sha.length != 64) throw IllegalStateException("bad sha256 for ${o.optString("name")}")
-            out.add(Asset(o.getString("name"), o.getString("url"), sha, o.optLong("size", -1L)))
+        val ver = j.optInt("manifestVersion", 1)
+        if (ver < 2) throw IllegalStateException("manifest v$ver — publish the v2 (regions) manifest")
+        val regionsArr = j.getJSONArray("regions")
+        val out = ArrayList<ManifestRegion>(regionsArr.length())
+        for (i in 0 until regionsArr.length()) {
+            val r = regionsArr.getJSONObject(i)
+            val id = r.getString("id")
+            if (!id.matches(Regex("[a-z0-9-]{1,64}"))) throw IllegalStateException("bad region id: $id")
+            val arr = r.getJSONArray("assets")
+            val assets = ArrayList<Asset>(arr.length())
+            for (k in 0 until arr.length()) {
+                val o = arr.getJSONObject(k)
+                val sha = o.getString("sha256").lowercase()
+                if (sha.length != 64) throw IllegalStateException("bad sha256 for ${o.optString("name")}")
+                assets.add(Asset(o.getString("name"), o.getString("url"), sha, o.optLong("size", -1L)))
+            }
+            // Only ever write files we expect — never trust an arbitrary name from the network.
+            val allowed = assets.filter { it.name in ALLOWED }
+            out.add(ManifestRegion(id, r.optString("name", id), allowed.sumOf { it.size }, allowed))
         }
-        // Only ever write files we expect — never trust an arbitrary name from the network.
-        return out.filter { it.name in ALLOWED }
+        return out
     }
 
     /** Download to a .part file, verify sha256, then move into place and write the marker. */
-    private fun fetchOne(ctx: Context, a: Asset, onBytes: (Long) -> Unit) {
-        val dest = File(dir(ctx), a.name)
+    private fun fetchOne(ctx: Context, p: Pending, onBytes: (Long) -> Unit) {
+        val a = p.asset
+        val d = Regions.dirFor(ctx, p.regionId).apply { mkdirs() }
+        val dest = File(d, a.name)
         // Unique temp name so we never collide with (or need write access to) a leftover .part
         // that a previous run — or an adb push — may have created under a different uid.
-        val part = File(dir(ctx), a.name + ".part." + System.currentTimeMillis())
+        val part = File(d, a.name + ".part." + System.currentTimeMillis())
         part.delete()
 
         val conn = (URL(a.url).openConnection() as HttpURLConnection).apply {
@@ -190,16 +228,16 @@ object DataAssets {
                 part.copyTo(dest, overwrite = true)
                 part.delete()
             }
-            // The .sha marker is only a cache hint so a 280 MB file isn't re-hashed on every
+            // The .sha marker is only a cache hint so a 700 MB file isn't re-hashed on every
             // launch. Writing it must NEVER fail the download — if the real file is in place,
             // the download SUCCEEDED. (An adb-seeded marker owned by another uid throws EACCES.)
             runCatching {
-                val marker = File(dir(ctx), a.name + ".sha")
+                val marker = File(d, a.name + ".sha")
                 marker.delete()
                 marker.writeText(a.sha256)
             }.onFailure { Log.w(TAG, "could not write ${a.name}.sha marker: ${it.message}") }
             onBytes(a.size)
-            Log.i(TAG, "installed ${a.name} (${dest.length()} bytes)")
+            Log.i(TAG, "installed ${p.regionId}/${a.name} (${dest.length()} bytes)")
         } finally {
             conn.disconnect()
         }

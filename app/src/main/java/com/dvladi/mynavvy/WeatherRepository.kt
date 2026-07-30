@@ -35,7 +35,12 @@ class WeatherRepository(private val context: Context) {
         val precipMm: Double = 0.0
     )
 
-    class Weather(val timesUtcMs: LongArray, val points: List<PointSeries>) {
+    class Weather(
+        val timesUtcMs: LongArray, val points: List<PointSeries>,
+        /** Per-forecast-day sunrise/sunset (UTC epoch ms) from Open-Meteo — for Auto day/night. */
+        val sunriseUtcMs: LongArray = LongArray(0),
+        val sunsetUtcMs: LongArray = LongArray(0),
+    ) {
         class PointSeries(
             val lat: Double, val lon: Double,
             val speedKn: DoubleArray, val dirDeg: DoubleArray, val gustKn: DoubleArray,
@@ -49,6 +54,17 @@ class WeatherRepository(private val context: Context) {
         )
 
         fun hourCount() = timesUtcMs.size
+
+        /** Day (true) / night (false) at [nowMs] from the forecast's own sunrise/sunset, or null when
+         *  the cached window doesn't cover now — the caller then falls back to a computed sun. */
+        fun isDaylight(nowMs: Long): Boolean? {
+            if (sunriseUtcMs.isEmpty() || sunsetUtcMs.isEmpty()) return null
+            var idx = -1
+            for (i in sunriseUtcMs.indices) { if (sunriseUtcMs[i] <= nowMs) idx = i else break }
+            if (idx < 0 || idx >= sunsetUtcMs.size) return null   // before the first cached sunrise
+            if (nowMs <= sunsetUtcMs[idx]) return true            // between sunrise and sunset → day
+            return if (idx + 1 < sunriseUtcMs.size) false else null  // after sunset → night (if another day is cached)
+        }
 
         private fun nearestSeries(lat: Double, lon: Double): PointSeries? {
             var best: PointSeries? = null; var bd = Double.MAX_VALUE
@@ -128,6 +144,12 @@ class WeatherRepository(private val context: Context) {
     var lastServedFromCache: Boolean = false
         private set
 
+    /** "Name · N nm" of the tide station the last fetch used, or null when none is in range
+     *  (e.g. Mexico/Canada — NOAA CO-OPS only predicts US stations). For the Wx panel readout. */
+    @Volatile
+    var lastTideStationLabel: String? = null
+        private set
+
     fun fetch(bounds: LatLngBounds, cb: (Weather?, Tide?, String?) -> Unit) {
         io.execute {
             // At sea there is no signal. Don't burn ~35 s of connect timeouts before falling back.
@@ -135,6 +157,7 @@ class WeatherRepository(private val context: Context) {
                 val w = loadCached("wind.json") { parseWind(it) }
                 val t = loadCached("tide.json") { parseTide(it) }
                 if (w != null) readCache("marine.json")?.let { runCatching { mergeMarine(w, it) } }
+                lastTideStationLabel = readCache("tide_station.txt")?.trim()?.ifEmpty { null }
                 lastServedFromCache = true
                 val msg = if (w == null && t == null) "Offline — no cached forecast"
                 else "Offline — using cached forecast"
@@ -148,31 +171,58 @@ class WeatherRepository(private val context: Context) {
             var cached = false
             try {
                 val raw = httpGet(windUrl(bounds))
-                writeCache("wind.json", raw)
-                weather = parseWind(raw)
+                weather = parseWind(raw)          // PARSE FIRST: a captive-portal HTML page throws here
+                writeCache("wind.json", raw)      // only overwrite the good cache with a valid response
             } catch (e: Exception) {
-                Log.w(TAG, "wind fetch failed", e)
+                Log.w(TAG, "wind fetch failed (keeping cache)", e)
                 err = "wind offline (${e.message})"
-                weather = loadCached("wind.json") { parseWind(it) }
+                weather = loadCached("wind.json") { parseWind(it) }   // the last good cache is intact
                 if (weather != null) cached = true
             }
-            try {
-                val raw = httpGet(tideUrl())
-                writeCache("tide.json", raw)
-                tide = parseTide(raw)
-            } catch (e: Exception) {
-                Log.w(TAG, "tide fetch failed", e)
-                if (err == null) err = "tide offline (${e.message})"
+            // Tide: nearest CO-OPS prediction station to the view (was a hardcoded San Diego id).
+            // NOAA only predicts US stations — in Mexico/Canada the nearest may be too far to be
+            // honest, in which case we show "no station" rather than a wrong reading.
+            val center = LatLng(
+                (bounds.northEast.latitude + bounds.southWest.latitude) / 2,
+                (bounds.northEast.longitude + bounds.southWest.longitude) / 2
+            )
+            // Try the nearest few stations in range and take the first that returns valid MLLW
+            // predictions: the closest station is often a SUBORDINATE one (e.g. Quarantine, Quivira)
+            // that has no MLLW datum and errors ("No Predictions data … Datum input"); the next
+            // station (e.g. San Diego, La Jolla) does. Datum stays MLLW so tide still adds onto the
+            // charted (MLLW) soundings.
+            val candidates = nearestStations(center).filter { it.second <= MAX_STATION_NM }
+            tide = null
+            var lastTideErr: Exception? = null
+            for ((station, distNm) in candidates) {
+                try {
+                    val raw = httpGet(tideUrl(station.id))
+                    val parsed = parseTide(raw)   // throws on the CO-OPS error JSON → try the next station
+                    tide = parsed
+                    writeCache("tide.json", raw)
+                    lastTideStationLabel = String.format(Locale.US, "%s · %.0f nm", station.name, distNm)
+                    writeCache("tide_station.txt", lastTideStationLabel ?: "")
+                    break
+                } catch (e: Exception) {
+                    lastTideErr = e
+                    Log.w(TAG, "tide station ${station.id} (${station.name}) unusable: ${e.message}")
+                }
+            }
+            if (tide == null) {
+                if (candidates.isEmpty()) Log.i(TAG, "no tide station within $MAX_STATION_NM nm")
+                else err = err ?: "tide unavailable (${lastTideErr?.message})"
+                // Fall back to the last good cached tide if we have one.
                 tide = loadCached("tide.json") { parseTide(it) }
-                if (tide != null) cached = true
+                if (tide != null) { cached = true; lastTideStationLabel = readCache("tide_station.txt")?.trim()?.ifEmpty { null } }
+                else { lastTideStationLabel = null }
             }
             // Sea-surface temperature (marine grid). Best-effort: a failure here must not lose the
             // wind/tide we already have, so it only folds SST into the existing forecast.
             if (weather != null) {
                 try {
                     val raw = httpGet(marineUrl(bounds))
-                    writeCache("marine.json", raw)
-                    mergeMarine(weather, raw)
+                    mergeMarine(weather, raw)     // PARSE FIRST (throws on a non-JSON page)…
+                    writeCache("marine.json", raw) // …then cache the good response
                 } catch (e: Exception) {
                     Log.w(TAG, "marine (SST) fetch failed", e)
                     readCache("marine.json")?.let { runCatching { mergeMarine(weather, it) } }
@@ -223,6 +273,7 @@ class WeatherRepository(private val context: Context) {
         val (lats, lons) = gridLatLons(b)
         return "https://api.open-meteo.com/v1/forecast?latitude=$lats&longitude=$lons" +
             "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation" +
+            "&daily=sunrise,sunset" +   // drives Auto day/night (falls back to a computed sun offline)
             "&wind_speed_unit=kn&temperature_unit=celsius&forecast_days=3&timezone=UTC"
     }
 
@@ -240,11 +291,46 @@ class WeatherRepository(private val context: Context) {
      * matches the ENC sounding datum (DSPM_SDAT=12), so these heights add straight onto charted
      * depths with no datum conversion.
      */
-    private fun tideUrl(): String {
+    private fun tideUrl(stationId: String): String {
         val today = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
         return "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions" +
-            "&application=MyNavvy&begin_date=$today&range=48&datum=MLLW&station=$TIDE_STATION" +
+            "&application=MyNavvy&begin_date=$today&range=48&datum=MLLW&station=$stationId" +
             "&time_zone=lst_ldt&units=english&format=json"
+    }
+
+    // --- Tide station directory ----------------------------------------------
+
+    private data class TideStation(val id: String, val name: String, val lat: Double, val lon: Double)
+
+    /**
+     * The [TIDE_STATION_CANDIDATES] closest CO-OPS tide-prediction stations to [p], each with its
+     * distance in nm, nearest first, from the cached station directory (fetched once from the CO-OPS
+     * metadata API, kept in the offline store — station geography doesn't change, so a stale copy is
+     * fine at sea). We return several because the very nearest is often a SUBORDINATE station that
+     * doesn't publish MLLW predictions; the caller tries each until one returns valid data.
+     */
+    private fun nearestStations(p: LatLng): List<Pair<TideStation, Double>> {
+        val raw = readCache(STATIONS_FILE)
+            ?: if (online()) runCatching {
+                val fresh = httpGet(STATIONS_URL)
+                JSONObject(fresh).getJSONArray("stations")  // validate shape before caching it
+                writeCache(STATIONS_FILE, fresh)
+                fresh
+            }.getOrNull() else null
+        if (raw == null) return emptyList()
+        return runCatching {
+            val arr = JSONObject(raw).getJSONArray("stations")
+            val all = ArrayList<Pair<TideStation, Double>>(arr.length())
+            for (i in 0 until arr.length()) {
+                val s = arr.getJSONObject(i)
+                val sla = s.optDouble("lat")
+                val slo = s.optDouble("lng")
+                if (!sla.isFinite() || !slo.isFinite()) continue
+                val d = GeoUtils.distanceNm(p, LatLng(sla, slo))
+                all.add(TideStation(s.getString("id"), s.optString("name", s.getString("id")), sla, slo) to d)
+            }
+            all.sortedBy { it.second }.take(TIDE_STATION_CANDIDATES)
+        }.getOrDefault(emptyList())
     }
 
     // --- Parsing ------------------------------------------------------------
@@ -279,7 +365,20 @@ class WeatherRepository(private val context: Context) {
                 )
             )
         }
-        return Weather(times, points)
+        // Sunrise/sunset (Auto day/night): identical across the small viewport, so the first point's
+        // daily block suffices. timezone=UTC → same "yyyy-MM-dd'T'HH:mm" shape as the hourly times.
+        var sunrise = LongArray(0)
+        var sunset = LongArray(0)
+        for (k in 0 until arr.length()) {
+            val d = arr.getJSONObject(k).optJSONObject("daily") ?: continue
+            val sr = d.optJSONArray("sunrise"); val ss = d.optJSONArray("sunset")
+            if (sr != null && ss != null && sr.length() > 0 && ss.length() == sr.length()) {
+                sunrise = LongArray(sr.length()) { runCatching { iso.parse(sr.getString(it))!!.time }.getOrDefault(0L) }
+                sunset = LongArray(ss.length()) { runCatching { iso.parse(ss.getString(it))!!.time }.getOrDefault(0L) }
+                break
+            }
+        }
+        return Weather(times, points, sunrise, sunset)
     }
 
     /** Fold sea-surface temperature from a marine response into an existing [Weather], matching
@@ -341,6 +440,14 @@ class WeatherRepository(private val context: Context) {
     companion object {
         private const val TAG = "MyNavvyWx"
         private const val GRID_N = 8           // 8x8 = 64 wind points per fetch (denser field)
-        private const val TIDE_STATION = "9410170" // San Diego, San Diego Bay
+        /** CO-OPS station directory (all tide-prediction stations, id/name/lat/lng). */
+        private const val STATIONS_URL =
+            "https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions"
+        private const val STATIONS_FILE = "stations.json"
+        /** Beyond this the "nearest" station's curve is fiction for where the boat is — show
+         *  "no station" instead (Baja runs: the last US station is at the border). */
+        private const val MAX_STATION_NM = 100.0
+        /** How many nearest stations to try before giving up (skips subordinate ones with no MLLW). */
+        private const val TIDE_STATION_CANDIDATES = 5
     }
 }

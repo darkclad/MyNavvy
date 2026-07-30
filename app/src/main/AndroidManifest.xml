@@ -4,6 +4,11 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Detect "no signal at sea" so we fall back to cached data instantly instead of timing out. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- requestNetwork(TRANSPORT_WIFI): pin NMEA sockets to the boat's WiFi AP (no-internet
+         networks otherwise route over cellular and silently fail). Normal permission. -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <!-- MulticastLock for GoFree discovery (239.2.1.1:2052) — Android drops multicast without it. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Anchor drag alarm buzzes the phone. -->
@@ -12,6 +17,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- CPU wake lock: with the screen off the CPU sleeps between GPS fixes, so the drag alarm would
+         stop evaluating. Held only while a watch is armed, to keep GPS + drag detection alive. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Ask to exempt the app from Doze/battery optimisation — otherwise the OS freezes even a
+         foreground service's wake lock + GPS once the device is idle, and the anchor alarm dies. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Exact, Doze-proof watchdog alarm that re-checks the boat's position even if continuous GPS
+         updates are frozen by the OS. USE_EXACT_ALARM is auto-granted (an anchor drag alarm is a
+         legitimate alarm use, and this app is sideloaded — no Play policy). -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- In-app self-updater: download a newer APK and hand it to the system installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- GPS is expected but not strictly required (tablet may use network location). -->
     <uses-feature
@@ -69,6 +87,22 @@
             android:name=".WatchService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!-- Shares the diagnostics log file out via the Android share sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- PackageInstaller status callbacks for the in-app self-updater. -->
+        <receiver
+            android:name=".AppInstallReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

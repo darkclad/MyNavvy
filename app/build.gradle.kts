@@ -21,8 +21,8 @@ android {
         // minSdk 21 so a ~2018 tablet (Android 5.0+) can run it.
         minSdk = 21
         targetSdk = 34
-        versionCode = 51
-        versionName = "0.51"
+        versionCode = 74
+        versionName = "0.74"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -32,6 +32,16 @@ android {
         val sentryDsn = (project.findProperty("SENTRY_DSN") as String?)
             ?: "https://8b0fc1fcea9b4356b8ff7ccfec60e169@glitchtip.darkclad.org/1"
         buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
+
+        // Cloudflare Access service-token headers for the in-app updater's fetch to the (gated)
+        // dist server. Injected at build time (publish-mynavvy.ps1 reads them from the untracked
+        // creds file and passes -PCF_ACCESS_CLIENT_ID=… -PCF_ACCESS_CLIENT_SECRET=…). Empty by
+        // default → the updater sends no headers, which is correct for LAN/dev and while /mynavvy
+        // is still public. A REAL credential — never hard-code it here or commit it.
+        val cfClientId = (project.findProperty("CF_ACCESS_CLIENT_ID") as String?) ?: ""
+        val cfClientSecret = (project.findProperty("CF_ACCESS_CLIENT_SECRET") as String?) ?: ""
+        buildConfigField("String", "CF_ACCESS_CLIENT_ID", "\"$cfClientId\"")
+        buildConfigField("String", "CF_ACCESS_CLIENT_SECRET", "\"$cfClientSecret\"")
 
         // Fallback for any build type that doesn't override it below.
         buildConfigField("boolean", "SIM_ENABLED", (simEnabledOverride ?: false).toString())
@@ -44,7 +54,7 @@ android {
             buildConfigField("boolean", "SIM_ENABLED", (simEnabledOverride ?: true).toString())
         }
         release {
-            // Field / delivered APK: the simulator is ALWAYS compiled out — no SIM_FIX
+            // Field / delivered APK: the simulator is ALWAYS compiled out -- no SIM_FIX
             // receiver, and the app always uses the real GPS.
             buildConfigField("boolean", "SIM_ENABLED", "false")
             isMinifyEnabled = false
@@ -75,6 +85,9 @@ dependencies {
     implementation(libs.nanohttpd)
     implementation(libs.sentry.android)
     implementation(libs.androidx.splashscreen)
+    implementation(libs.kotlinx.coroutines.android)
+    testImplementation(libs.junit)
+    testImplementation(libs.json)
 
     // Jetpack Compose (BOM-managed versions). UI chrome is built in Compose; MapLibre's MapView is
     // hosted via AndroidView interop; instrument gauges draw into Compose Canvas via nativeCanvas.

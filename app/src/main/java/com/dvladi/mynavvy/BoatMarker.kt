@@ -22,6 +22,7 @@ import org.maplibre.geojson.Polygon
  */
 class BoatMarker(style: Style) {
 
+    private val mapStyle = style
     private val wedgeSrc = GeoJsonSource(SRC_WEDGE)
     private val dotSrc = GeoJsonSource(SRC_DOT)
 
@@ -79,6 +80,11 @@ class BoatMarker(style: Style) {
         pos = null
         val empty = FeatureCollection.fromFeatures(emptyList())
         wedgeSrc.setGeoJson(empty); dotSrc.setGeoJson(empty)
+    }
+
+    /** Tint the position dot's core by GPS source: gray = no signal, blue = phone GPS, green = NMEA. */
+    fun setDotColor(color: String) {
+        mapStyle.getLayer(LYR_CORE)?.setProperties(PropertyFactory.circleColor(color))
     }
 
     private fun pxToNm(px: Double) = px * metersPerPixel / 1852.0

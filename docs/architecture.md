@@ -13,14 +13,15 @@ to keep working offline and to survive an old tablet (minSdk 21, GL ES, no Play 
 ┌──────────────┐  │    └───────┬────────────────────────────────────┘
 │ WatchService │──┘            │ owns (created on style load)
 │  (FGS)       │               ▼
-│  GPS · sim   │    RouteManager · TrackHistory.Overlay · WeatherOverlay
-│  filters     │    AnchorWatch · MarkStore · BoatMarker      (MapLibre layers)
+│  GPS · NMEA  │    RouteManager · TrackHistory.Overlay · WeatherOverlay
+│  sim·filters │    AnchorWatch · MarkStore · BoatMarker      (MapLibre layers)
 │  COG · track │
 │  anchor alarm│──▶ TrackStore (CSV/day on disk)
 └──────────────┘
-        ▲                    MbTilesServer (localhost) ◀── charts.mbtiles / basemap.mbtiles
-        │ SIM_FIX broadcast (debug builds)
-   boatsim.py (PC)
+   ▲        ▲                MbTilesServer (localhost) ◀── charts.mbtiles / basemap.mbtiles
+   │        │ SIM_FIX broadcast (debug builds)
+   │   boatsim.py (PC)
+   │ NMEA 0183 over WiFi TCP (GO7 GoFree / ESP32 / boatsim --nmea-server)
 ```
 
 ## Position pipeline — `WatchService`
@@ -48,6 +49,41 @@ the filtering happens once, in the service.
 injected stream is the sole source. On real hardware real GPS always runs — a field device
 can never lose its fix because a sim build was left installed. See
 [development.md](development.md).
+
+### NMEA-over-WiFi source (`com.dvladi.mynavvy.nmea`)
+
+Live boat-instrument data (Simrad GO7 GoFree AP, later an ESP32 N2K gateway, or boatsim's
+`--nmea-server` bench feed) enters through the same funnel:
+
+- [NmeaClient](../app/src/main/java/com/dvladi/mynavvy/nmea/NmeaClient.kt) — TCP stream as
+  a `Flow<String>`, auto-reconnect with backoff. It pins its sockets to the **WiFi
+  `Network`** (`requestNetwork(TRANSPORT_WIFI)` + that network's socket factory): a boat AP
+  has no internet, and an unpinned socket would silently route over cellular.
+- [NmeaParser](../app/src/main/java/com/dvladi/mynavvy/nmea/NmeaParser.kt) — pure
+  checksum-validated `String -> NavUpdate?` (RMC/GLL/VTG/DPT/DBT/VHW, wind spec'd for the
+  ESP32); JVM unit tests in `app/src/test`.
+- `WatchService` runs the pipeline in its FGS scope. RMC/GLL become
+  `Location("nmea")` → `handleFix(trusted = true, trustedCog = true)` — the source's real
+  COG/SOG are used **verbatim** (position-derived COG is garbage at anchor). Depth / STW /
+  heading feed age-gated getters (`nmeaDepthM()` …) that the HUD sidebar, nav HUD, helm and
+  anchor-shoaling check consume (DEPTH shows "sounder live" and beats chart+tide while fresh).
+
+**Position authority:** while NMEA fixes are fresh (≤10 s) they are *the* position — phone
+GPS is unregistered and SIM_FIX/GPS fixes are dropped at the funnel. When the stream goes
+stale the watchdog re-registers the phone GPS immediately (auto-fallback), and NMEA takes
+authority back on its next fix.
+
+**Source selection** (Configuration → Data source, persisted in
+[NmeaPrefs](../app/src/main/java/com/dvladi/mynavvy/nmea/NmeaPrefs.kt), applied by
+`WatchService.applyNmeaPrefs()` on start and on change): *Phone GPS* (off) · *Boat (auto)* ·
+*Manual TCP host:port*. Auto mode resolves the endpoint on **every** connect cycle via
+[GoFreeDiscovery](../app/src/main/java/com/dvladi/mynavvy/nmea/GoFreeDiscovery.kt) —
+GoFree JSON announce on UDP multicast `239.2.1.1:2052` (MulticastLock held), falling back
+to probing the AP gateway on TCP 10110/2053 (that fallback is also how the emulator finds
+boatsim through `10.0.2.2`). A chrome chip by the ☰ menu shows `NMEA … / LIVE / STALE`
+(hidden when source = GPS); tapping it opens the dialog, whose **Test connection** runs an
+independent client with a raw-sentence log (the on-boat GO7 probe). The debug `NMEA_DEBUG`
+broadcast (sim builds) still force-starts/stops a source over the prefs.
 
 ## Map & style
 

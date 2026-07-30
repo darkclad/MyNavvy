@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="#101418"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Data source"
+        android:textColor="#FFFFFF"
+        android:textSize="19sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Where position, speed and depth come from"
+        android:textColor="#6b7d89"
+        android:textSize="10sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+        <Button android:id="@+id/btnSrcGps" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Phone GPS" />
+        <Button android:id="@+id/btnSrcAuto" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1.1" android:minWidth="0dp" android:textSize="12sp" android:text="Boat (auto)" />
+        <Button android:id="@+id/btnSrcManual" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:minWidth="0dp" android:textSize="12sp" android:text="Manual TCP" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvSrcHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="#6b7d89"
+        android:textSize="10sp"
+        android:text="Boat (auto): finds a GoFree/NMEA source on the boat's WiFi" />
+
+    <LinearLayout
+        android:id="@+id/rowManual"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+        <EditText android:id="@+id/etNmeaHost" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:inputType="textUri" android:hint="192.168.0.1"
+            android:textColor="#FFFFFF" android:textColorHint="#4d5c66" android:textSize="14sp"
+            android:fontFamily="monospace" android:backgroundTint="#6fc6e8" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text=" : " android:textColor="#9fb3c0" android:textSize="14sp" />
+        <EditText android:id="@+id/etNmeaPort" android:layout_width="86dp" android:layout_height="wrap_content"
+            android:inputType="number" android:hint="10110"
+            android:textColor="#FFFFFF" android:textColorHint="#4d5c66" android:textSize="14sp"
+            android:fontFamily="monospace" android:backgroundTint="#6fc6e8" />
+    </LinearLayout>
+
+    <Button android:id="@+id/btnNmeaTest" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:text="Test connection" />
+
+    <TextView
+        android:id="@+id/tvNmeaStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:textColor="#9fb3c0"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:text="—" />
+
+    <TextView
+        android:id="@+id/tvNmeaLog"
+        android:layout_width="match_parent"
+        android:layout_height="132dp"
+        android:layout_marginTop="4dp"
+        android:background="#0b0f13"
+        android:padding="6dp"
+        android:gravity="bottom"
+        android:textColor="#7fd08f"
+        android:textSize="9sp"
+        android:fontFamily="monospace"
+        android:scrollbars="vertical"
+        android:text="" />
+
+    <Button android:id="@+id/btnNmeaClose" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:text="Done" />
+</LinearLayout>

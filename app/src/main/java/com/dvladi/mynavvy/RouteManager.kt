@@ -33,6 +33,13 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
     private val wpSource = GeoJsonSource(SRC_WP)
     private val trailSource = GeoJsonSource(SRC_TRAIL)
     private val calcSource = GeoJsonSource(SRC_CALC)
+    private val mapStyle = style
+
+    /** Show/hide the live breadcrumb trail (today's track). Data keeps accumulating while hidden. */
+    fun setTrailVisible(visible: Boolean) {
+        mapStyle.getLayer(LYR_TRAIL)?.setProperties(
+            PropertyFactory.visibility(if (visible) Property.VISIBLE else Property.NONE))
+    }
 
     init {
         style.addSource(trailSource)
@@ -165,6 +172,15 @@ class RouteManager(style: org.maplibre.android.maps.Style) {
     }
 
     fun clearTrail() { trail.clear(); redrawTrail() }
+
+    /** Replace the whole breadcrumb trail (e.g. seed today's recorded track on app start so the
+     *  current-day line survives a restart/screen-off instead of collapsing to the dashed history). */
+    fun setTrail(points: List<LatLng>) {
+        trail.clear()
+        val cap = if (points.size > TRAIL_MAX) points.subList(points.size - TRAIL_MAX, points.size) else points
+        trail.addAll(cap)
+        redrawTrail()
+    }
 
     private fun redrawTrail() {
         if (trail.size >= 2) {

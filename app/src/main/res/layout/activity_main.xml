@@ -149,15 +149,17 @@
             android:textSize="22sp" android:text="–" />
     </LinearLayout>
 
-    <!-- Left icon toolbar — shown on a chart tap, auto-hides after a few seconds. -->
-    <LinearLayout
+    <!-- Left icon toolbar — shown on a chart tap, auto-hides after a few seconds. A GridLayout so
+         MainActivity can reflow it to 2 columns in portrait split (the short chart pane can't fit
+         one tall column). columnCount=1 = the normal single vertical column. -->
+    <GridLayout
         android:id="@+id/leftToolbar"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="start|top"
         android:layout_marginStart="6dp"
         android:layout_marginTop="60dp"
-        android:orientation="vertical"
+        android:columnCount="1"
         android:background="#E6101418"
         android:padding="4dp"
         android:elevation="14dp"
@@ -169,7 +171,7 @@
         <Button android:id="@+id/btnDepth" style="@style/ToolIcon" android:text="≋" />
         <Button android:id="@+id/btnMark" style="@style/ToolIcon" android:text="⚑" />
         <Button android:id="@+id/btnAnchor" style="@style/ToolIcon" android:text="⚓" />
-    </LinearLayout>
+    </GridLayout>
 
     <!-- On-map scale bar, bottom-left. Part of the auto-hiding chart UI. -->
     <com.dvladi.mynavvy.ScaleBarView
@@ -252,6 +254,27 @@
       android:background="@drawable/bg_menu_btn"
       android:src="@drawable/ic_menu_hamburger"
       android:contentDescription="Menu" />
+
+  <!-- NMEA data-source status chip: Connecting / Live / Stale. Hidden when source = phone GPS.
+       Sits right of the ☰ menu; liftTopLeftOverlays() moves it with the menu in nav mode.
+       Tap = open the Data source dialog. -->
+  <TextView
+      android:id="@+id/tvNmeaChip"
+      android:layout_width="wrap_content"
+      android:layout_height="wrap_content"
+      android:layout_gravity="top|start"
+      android:layout_marginStart="64dp"
+      android:layout_marginTop="17dp"
+      android:paddingHorizontal="10dp"
+      android:paddingVertical="4dp"
+      android:elevation="20dp"
+      android:background="@drawable/bg_chip"
+      android:fontFamily="monospace"
+      android:textSize="11sp"
+      android:textStyle="bold"
+      android:textColor="#9fb3c0"
+      android:visibility="gone"
+      android:text="NMEA …" />
 
   <!-- Icon tile grid (Simrad-style). Tile ids match the old buttons so wiring is unchanged.
        Wrapped in a ScrollView so the taller menu (split-view presets added) still scrolls on a

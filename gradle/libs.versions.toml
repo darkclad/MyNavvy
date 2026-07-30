@@ -18,6 +18,9 @@ splashscreen = "1.0.1"
 # Compose Compiler plugin is versioned with Kotlin (2.0.x). BOM pins the runtime artifacts.
 composeBom = "2024.09.03"
 activityCompose = "1.9.2"
+# Coroutines/Flow — used directly by the NMEA client (Compose already pulls it in
+# transitively; declared explicitly since app code now depends on it by name).
+coroutines = "1.9.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +37,10 @@ compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+junit = { group = "junit", name = "junit", version = "4.13.2" }
+# Real org.json for JVM unit tests (the android.jar stub throws "not mocked").
+json = { group = "org.json", name = "json", version = "20240303" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
