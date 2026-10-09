@@ -21,7 +21,9 @@ jobs:
         - android-dist:/dist
         - android-gradle:/gradle
     env:
-      GRADLE_USER_HOME: /gradle
+      # One Gradle home per repo: Gradle's cache locks don't work across containers, so two repos
+      # building at once on a shared home time out. Same-repo jobs are serialized above.
+      GRADLE_USER_HOME: /gradle/${{ github.repository }}
     steps:
       - uses: actions/checkout@v4
 
