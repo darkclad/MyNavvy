@@ -1,0 +1,47 @@
+# Build, sign and publish the field APK on every push to main (self-hosted Forgejo runner).
+# Publishes only when versionCode in app/build.gradle.kts is above the live one -- bump it to ship.
+# The runner image, the apk-publish tool and the secrets are documented in dvladi/android-ci.
+name: APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apk:
+    runs-on: android
+    container:
+      image: android-ci:1
+      volumes:
+        - android-dist:/dist
+        - android-gradle:/gradle
+    env:
+      GRADLE_USER_HOME: /gradle
+    steps:
+      - uses: actions/checkout@v4
+
+      # Field builds are debug-signed with the original dev machine's debug.keystore;
+      # the same key is what lets the in-app updater install over the existing app.
+      - name: Signing key
+        run: install-keystore DEBUG_KEYSTORE_B64 "$HOME/.android/debug.keystore"
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+
+      # -PsimEnabled=false: delivered APKs never include the debug GPS simulator.
+      # A build without the updater token silently loses off-LAN updates, so missing = fail.
+      - name: Build
+        run: |
+          : "${ORG_GRADLE_PROJECT_CF_ACCESS_CLIENT_ID:?CF_ACCESS_CLIENT_ID secret missing}"
+          : "${ORG_GRADLE_PROJECT_CF_ACCESS_CLIENT_SECRET:?CF_ACCESS_CLIENT_SECRET secret missing}"
+          sh ./gradlew :app:assembleDebug -PsimEnabled=false --console=plain
+        env:
+          ORG_GRADLE_PROJECT_CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          ORG_GRADLE_PROJECT_CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Publish
+        run: apk-publish --app mynavvy --package com.dvladi.mynavvy --build-type debug --apk 'app/build/outputs/apk/debug/*.apk'
